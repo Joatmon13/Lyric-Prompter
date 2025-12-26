@@ -1,0 +1,217 @@
+# Lyric Prompter - Cursor AI Rules
+
+## Project Overview
+Lyric Prompter is a native Android app that helps guitarists and singers remember lyrics during performance. The app uses Vosk for offline voice recognition to track the user's position in a song and speaks upcoming lyrics through a Bluetooth earpiece using Android TTS.
+
+**Target User:** Paul - a guitarist who plays well but struggles to recall lyrics. Uses Pixel 9 with Bluetooth earpiece.
+
+**Core Value Proposition:** The app follows the performer, not the other way around. Unlike karaoke apps, it uses voice recognition to track position and prompts at the right moment regardless of tempo.
+
+## Technology Stack
+- **Platform:** Native Android (Kotlin)
+- **Min SDK:** API 26 (Android 8.0)
+- **Target SDK:** API 34 (Android 14)
+- **UI Framework:** Jetpack Compose with Material 3
+- **Architecture:** MVVM + Clean Architecture
+- **DI:** Hilt
+- **Speech Recognition:** Vosk (offline)
+- **Text-to-Speech:** Android TTS
+- **Local Storage:** Room + JSON
+- **Async:** Kotlin Coroutines + Flow
+- **Lyrics APIs:** LRCLIB (primary), Genius (fallback)
+- **HTTP Client:** Retrofit
+
+## Project Structure
+```
+app/src/main/java/com/boynetech/lyricprompter/
+├── LyricPrompterApp.kt              # Application class
+├── MainActivity.kt                   # Single activity
+├── di/                               # Hilt dependency injection modules
+├── data/                             # Data layer
+│   ├── local/db/                     # Room database, DAOs, entities
+│   ├── local/preferences/            # DataStore preferences
+│   ├── remote/lyrics/                # LRCLIB and Genius API clients
+│   └── repository/                   # Repository implementations
+├── domain/                           # Domain layer
+│   ├── model/                        # Domain models (Song, LyricLine, Setlist)
+│   └── usecase/                      # Use cases (ImportLyrics, ProcessLyrics, SearchLyrics)
+├── audio/                            # Audio engine
+│   ├── vosk/                         # Vosk speech recognition
+│   ├── tts/                          # TTS prompts and count-in
+│   └── routing/                      # Bluetooth audio routing
+├── tracking/                         # Position tracking
+│   ├── PositionTracker.kt            # Core tracking logic
+│   ├── FuzzyMatcher.kt               # Word sequence matching
+│   └── PromptTrigger.kt              # Prompt timing logic
+├── ui/                               # Presentation layer
+│   ├── navigation/                   # NavGraph
+│   ├── theme/                        # Material 3 theming
+│   ├── library/                      # Song library screen
+│   ├── song/                         # Song detail and editor screens
+│   ├── add/                          # Add song search screen
+│   ├── perform/                      # Performance mode screen
+│   ├── setlist/                      # Setlist management screen
+│   └── settings/                     # Settings screen
+└── util/                             # Utilities
+```
+
+## Code Style Guidelines
+
+### Kotlin
+- Use idiomatic Kotlin (data classes, sealed classes, extension functions)
+- Prefer `val` over `var` (immutability)
+- Use nullable types appropriately with safe calls
+- Follow naming conventions: `camelCase` for functions/properties, `PascalCase` for classes
+- Keep functions small and focused
+- Use meaningful parameter names
+
+### Jetpack Compose
+- Use Compose best practices (hoisted state, unidirectional data flow)
+- Composables should be stateless where possible
+- Use `remember` and `derivedStateOf` appropriately
+- Follow Material 3 design guidelines
+- Use `@Preview` annotations for composables
+- Keep composables focused and modular
+
+### Architecture
+- Follow MVVM pattern strictly
+- ViewModels expose StateFlow for UI state
+- Use sealed classes for UI events and state
+- Repository pattern for data access
+- Use cases for business logic
+- Keep layers separated (UI → ViewModel → UseCase → Repository)
+
+### Coroutines
+- Use appropriate dispatchers (IO for database/network, Main for UI)
+- Handle errors with try-catch or Result type
+- Cancel coroutines appropriately (viewModelScope)
+- Use Flow for reactive streams
+
+### Dependency Injection
+- Use Hilt annotations (@Module, @Inject, @HiltViewModel)
+- Provide singletons for heavy objects (VoskEngine, Room database)
+- Use constructor injection
+
+## Key Domain Models
+
+### Song
+```kotlin
+data class Song(
+    val id: String,                    // UUID
+    val title: String,
+    val artist: String,
+    val bpm: Int?,
+    val originalKey: String?,
+    val performKey: String?,
+    val timeSignature: String?,
+    val countInEnabled: Boolean = true,
+    val countInBeats: Int = 4,
+    val triggerPercent: Int = 70,      // 40-90
+    val promptWordCount: Int = 4,      // 2-6
+    val lines: List<LyricLine>,
+    val vocabulary: Set<String>,
+    val setlistIds: List<String>,
+    val tags: List<String>,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+```
+
+### LyricLine
+```kotlin
+data class LyricLine(
+    val index: Int,
+    val text: String,                  // Original text
+    val words: List<String>,           // Normalized words for matching
+    val promptText: String             // Text for TTS (first N words of NEXT line)
+)
+```
+
+### PerformanceState
+```kotlin
+data class PerformanceState(
+    val status: PerformanceStatus,     // READY, COUNT_IN, LISTENING, PAUSED, FINISHED
+    val currentLineIndex: Int,
+    val recognisedWords: List<String>,
+    val lineConfidence: Float,
+    val lastPromptedLine: Int,
+    val startTime: Long?,
+    val song: Song
+)
+```
+
+## Core Algorithms
+
+### Position Tracking
+- Use Longest Common Subsequence (LCS) to match recognized words to lyric lines
+- Maintain a rolling buffer of last ~20 recognized words
+- Search within a window around current position (not entire song)
+- Trigger prompt when match score reaches trigger threshold (default 70%)
+
+### Prompt Generation
+- Extract first N words (default 4) from the NEXT line
+- Prompt is spoken before the performer needs it
+- Track last prompted line to prevent double-prompting
+
+### Vocabulary Loading
+- Build Vosk grammar from song's unique words
+- Include `[unk]` token for unrecognized sounds
+- Load vocabulary when song is selected for performance
+
+## Performance Requirements
+- Vocabulary loading: < 2 seconds per song
+- Recognition latency: < 500ms from speech to match
+- TTS latency: < 200ms from trigger to audio start
+- App launch to ready: < 3 seconds
+
+## API Integrations
+
+### LRCLIB (Primary)
+- Base URL: https://lrclib.net/api/
+- Search: GET /search?q={query}
+- Get lyrics: GET /get?artist_name={artist}&track_name={track}
+- Returns plainLyrics and syncedLyrics
+
+### Genius (Fallback)
+- Base URL: https://api.genius.com/
+- Requires API token
+- Search returns song URLs, lyrics require scraping
+
+## Permissions Required
+- RECORD_AUDIO - Voice recognition
+- INTERNET - Lyrics search
+- BLUETOOTH, BLUETOOTH_CONNECT - Earpiece
+- WAKE_LOCK - Keep screen on during performance
+
+## Testing Guidelines
+- Unit test FuzzyMatcher, ProcessLyricsUseCase, PromptTrigger
+- Integration test VoskEngine, PositionTracker, LyricsSearchService
+- UI test navigation flows, performance mode
+- Manual test with real singing and Bluetooth earpiece
+
+## Implementation Phases
+1. Project setup with Hilt, add Vosk model
+2. Data layer (Room database, repositories)
+3. Lyrics processing (ProcessLyricsUseCase, manual entry)
+4. Vosk integration (recognition streaming)
+5. Position tracking (FuzzyMatcher, PositionTracker)
+6. Audio output (TTS, count-in)
+7. Performance mode UI
+8. Library and editor UI
+9. Lyrics search (LRCLIB, Genius)
+10. Polish (settings, setlists, error handling)
+
+## Common Pitfalls to Avoid
+- Don't process on main thread (use IO dispatcher for Vosk, database)
+- Don't leak audio resources (release TTS, Vosk properly)
+- Handle Bluetooth disconnection gracefully
+- Don't prompt the same line twice
+- Keep recognition vocabulary constrained (improves accuracy)
+- Handle empty/null lyrics gracefully
+
+## UI Design Principles
+- Minimal UI during performance (distraction-free)
+- Large touch targets for gigging (dark venues, rushed)
+- One-handed operation where possible
+- Keep screen on during performance
+- Show current line as backup if earpiece fails
