@@ -30,7 +30,7 @@ class LyricsSearchService @Inject constructor(
                     title = result.trackName,
                     artist = result.artistName,
                     album = result.albumName,
-                    duration = result.duration
+                    duration = result.duration?.toInt()
                 )
             }
 

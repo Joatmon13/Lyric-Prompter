@@ -24,7 +24,7 @@ data class LrcLibSearchResult(
     val trackName: String,
     val artistName: String,
     val albumName: String?,
-    val duration: Int?
+    val duration: Double?
 )
 
 data class LrcLibLyrics(

@@ -1,6 +1,9 @@
 package com.lyricprompter.ui.perform
 
+import android.Manifest
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,12 +30,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lyricprompter.R
@@ -53,6 +63,28 @@ fun PerformScreen(
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Permission state
+    var hasAudioPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PermissionChecker.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasAudioPermission = isGranted
+    }
+
+    // Request permission on first load
+    LaunchedEffect(Unit) {
+        if (!hasAudioPermission) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     // Handle back button
     BackHandler {
@@ -65,30 +97,81 @@ fun PerformScreen(
             .fillMaxSize()
             .background(PerformanceBackground)
     ) {
-        when (val state = uiState) {
-            is PerformUiState.Loading -> {
-                LoadingContent()
+        if (!hasAudioPermission) {
+            // Show permission required message
+            PermissionRequiredContent(
+                onRequestPermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onBackClick = onBackClick
+            )
+        } else {
+            when (val state = uiState) {
+                is PerformUiState.Loading -> {
+                    LoadingContent()
+                }
+                is PerformUiState.Error -> {
+                    ErrorContent(
+                        message = state.message,
+                        onBackClick = onBackClick
+                    )
+                }
+                is PerformUiState.Ready -> {
+                    PerformContent(
+                        state = state,
+                        onStart = viewModel::start,
+                        onStop = {
+                            viewModel.stop()
+                            onBackClick()
+                        },
+                        onRestart = viewModel::restart,
+                        onBackClick = {
+                            viewModel.stop()
+                            onBackClick()
+                        }
+                    )
+                }
             }
-            is PerformUiState.Error -> {
-                ErrorContent(
-                    message = state.message,
-                    onBackClick = onBackClick
-                )
+        }
+    }
+}
+
+@Composable
+private fun PermissionRequiredContent(
+    onRequestPermission: () -> Unit,
+    onBackClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "Microphone Permission Required",
+                style = PerformanceTypography.status,
+                color = PerformanceAccent
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "The app needs microphone access to listen to your singing and provide prompts.",
+                style = PerformanceTypography.status,
+                color = PerformanceText,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = onRequestPermission,
+                colors = ButtonDefaults.buttonColors(containerColor = PerformanceAccent)
+            ) {
+                Text("Grant Permission")
             }
-            is PerformUiState.Ready -> {
-                PerformContent(
-                    state = state,
-                    onStart = viewModel::start,
-                    onStop = {
-                        viewModel.stop()
-                        onBackClick()
-                    },
-                    onRestart = viewModel::restart,
-                    onBackClick = {
-                        viewModel.stop()
-                        onBackClick()
-                    }
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onBackClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PerformanceText.copy(alpha = 0.3f)
                 )
+            ) {
+                Text("Go Back")
             }
         }
     }

@@ -63,7 +63,7 @@ class PerformViewModel @Inject constructor(
         val song = currentState.song
 
         viewModelScope.launch {
-            // Count-in if enabled
+            // Count-in only if enabled AND BPM is set (can't do count-in without knowing the tempo)
             if (song.countInEnabled && song.bpm != null) {
                 _uiState.update { state ->
                     if (state is PerformUiState.Ready) {
