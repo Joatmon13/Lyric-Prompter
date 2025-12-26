@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lyric Prompter</string>
+
+    <!-- Navigation -->
+    <string name="nav_library">Library</string>
+    <string name="nav_setlists">Setlists</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Library Screen -->
+    <string name="library_title">Song Library</string>
+    <string name="library_empty">No songs yet</string>
+    <string name="library_empty_subtitle">Tap + to add your first song</string>
+    <string name="library_search_hint">Search songs…</string>
+    <string name="library_add_song">Add Song</string>
+
+    <!-- Song Detail Screen -->
+    <string name="song_perform">Perform</string>
+    <string name="song_edit">Edit</string>
+    <string name="song_delete">Delete</string>
+    <string name="song_delete_confirm">Delete this song?</string>
+
+    <!-- Song Editor Screen -->
+    <string name="editor_title">Edit Song</string>
+    <string name="editor_song_title">Title</string>
+    <string name="editor_artist">Artist</string>
+    <string name="editor_lyrics">Lyrics</string>
+    <string name="editor_bpm">BPM</string>
+    <string name="editor_original_key">Original Key</string>
+    <string name="editor_perform_key">Perform Key</string>
+    <string name="editor_time_signature">Time Signature</string>
+    <string name="editor_count_in">Count-in</string>
+    <string name="editor_count_in_beats">Count-in Beats</string>
+    <string name="editor_trigger_percent">Trigger %</string>
+    <string name="editor_prompt_words">Prompt Words</string>
+    <string name="editor_save">Save</string>
+    <string name="editor_cancel">Cancel</string>
+
+    <!-- Add Song Screen -->
+    <string name="add_song_title">Add Song</string>
+    <string name="add_song_search">Search Online</string>
+    <string name="add_song_paste">Paste Lyrics</string>
+    <string name="add_song_manual">Manual Entry</string>
+    <string name="add_song_search_hint">Search by title and artist…</string>
+    <string name="add_song_searching">Searching…</string>
+    <string name="add_song_no_results">No results found</string>
+
+    <!-- Performance Screen -->
+    <string name="perform_ready">Ready</string>
+    <string name="perform_listening">Listening</string>
+    <string name="perform_count_in">Count-in</string>
+    <string name="perform_finished">Finished</string>
+    <string name="perform_start">Start</string>
+    <string name="perform_stop">Stop</string>
+    <string name="perform_line_of">Line %1$d of %2$d</string>
+
+    <!-- Setlist Screen -->
+    <string name="setlist_title">Setlists</string>
+    <string name="setlist_empty">No setlists yet</string>
+    <string name="setlist_create">Create Setlist</string>
+    <string name="setlist_name_hint">Setlist name</string>
+    <string name="setlist_add_songs">Add Songs</string>
+    <string name="setlist_start">Start Setlist</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_defaults">Default Settings</string>
+    <string name="settings_default_trigger">Default Trigger %</string>
+    <string name="settings_default_prompt_words">Default Prompt Words</string>
+    <string name="settings_default_count_in">Default Count-in</string>
+    <string name="settings_audio">Audio</string>
+    <string name="settings_tts_voice">TTS Voice</string>
+    <string name="settings_tts_speed">TTS Speed</string>
+    <string name="settings_audio_output">Audio Output</string>
+    <string name="settings_display">Display</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_keep_screen_on">Keep Screen On</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version</string>
+
+    <!-- Common -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="save">Save</string>
+    <string name="edit">Edit</string>
+    <string name="close">Close</string>
+    <string name="error">Error</string>
+    <string name="loading">Loading…</string>
+    <string name="retry">Retry</string>
+
+    <!-- Errors -->
+    <string name="error_network">Network error. Please check your connection.</string>
+    <string name="error_lyrics_not_found">Lyrics not found</string>
+    <string name="error_microphone">Microphone access required</string>
+    <string name="error_vosk_init">Speech recognition failed to initialize</string>
+
+    <!-- Permissions -->
+    <string name="permission_microphone_title">Microphone Permission</string>
+    <string name="permission_microphone_message">Lyric Prompter needs microphone access to track your singing and prompt the next line.</string>
+    <string name="permission_bluetooth_title">Bluetooth Permission</string>
+    <string name="permission_bluetooth_message">Allow Bluetooth access to send prompts to your earpiece.</string>
+</resources>
