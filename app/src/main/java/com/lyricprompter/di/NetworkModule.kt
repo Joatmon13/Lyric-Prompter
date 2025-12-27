@@ -1,5 +1,6 @@
 package com.lyricprompter.di
 
+import com.lyricprompter.data.remote.bpm.GetSongBpmApi
 import com.lyricprompter.data.remote.lyrics.GeniusApi
 import com.lyricprompter.data.remote.lyrics.LrcLibApi
 import dagger.Module
@@ -20,6 +21,7 @@ object NetworkModule {
 
     private const val LRCLIB_BASE_URL = "https://lrclib.net/"
     private const val GENIUS_BASE_URL = "https://api.genius.com/"
+    private const val GETSONGBPM_BASE_URL = "https://api.getsongbpm.com/"
 
     @Provides
     @Singleton
@@ -68,5 +70,22 @@ object NetworkModule {
     @Singleton
     fun provideGeniusApi(@Named("genius") retrofit: Retrofit): GeniusApi {
         return retrofit.create(GeniusApi::class.java)
+    }
+
+    @Provides
+    @Singleton
+    @Named("getsongbpm")
+    fun provideGetSongBpmRetrofit(okHttpClient: OkHttpClient): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl(GETSONGBPM_BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideGetSongBpmApi(@Named("getsongbpm") retrofit: Retrofit): GetSongBpmApi {
+        return retrofit.create(GetSongBpmApi::class.java)
     }
 }

@@ -1,9 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+}
+
+// Load API keys from local.properties
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
 }
 
 android {
@@ -18,6 +27,13 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // GetSongBPM API key - add to local.properties as GETSONGBPM_API_KEY=your_key
+        buildConfigField(
+            "String",
+            "GETSONGBPM_API_KEY",
+            "\"${localProperties.getProperty("GETSONGBPM_API_KEY", "")}\""
+        )
     }
 
     buildTypes {

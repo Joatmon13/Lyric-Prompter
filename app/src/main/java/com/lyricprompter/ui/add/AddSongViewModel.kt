@@ -1,7 +1,11 @@
 package com.lyricprompter.ui.add
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lyricprompter.BuildConfig
+import com.lyricprompter.data.remote.bpm.BpmLookupService
+import com.lyricprompter.data.remote.bpm.BpmResult
 import com.lyricprompter.data.remote.lyrics.LyricsSearchResult
 import com.lyricprompter.data.remote.lyrics.LyricsSearchService
 import com.lyricprompter.data.repository.SongRepository
@@ -16,9 +20,14 @@ import javax.inject.Inject
 @HiltViewModel
 class AddSongViewModel @Inject constructor(
     private val lyricsSearchService: LyricsSearchService,
+    private val bpmLookupService: BpmLookupService,
     private val processLyricsUseCase: ProcessLyricsUseCase,
     private val songRepository: SongRepository
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "AddSongViewModel"
+    }
 
     private val _uiState = MutableStateFlow<AddSongUiState>(AddSongUiState.Idle)
     val uiState: StateFlow<AddSongUiState> = _uiState.asStateFlow()
@@ -58,11 +67,14 @@ class AddSongViewModel @Inject constructor(
             lyricsSearchService.fetchLyrics(result)
                 .onSuccess { lyrics ->
                     // Create song from lyrics
-                    val song = processLyricsUseCase.process(
+                    var song = processLyricsUseCase.process(
                         rawLyrics = lyrics,
                         title = result.title,
                         artist = result.artist
                     )
+
+                    // Try to look up BPM (non-blocking, best effort)
+                    song = lookupAndApplyBpm(song)
 
                     // Save to repository
                     songRepository.saveSong(song)
@@ -72,6 +84,41 @@ class AddSongViewModel @Inject constructor(
                 .onFailure { error ->
                     _uiState.value = AddSongUiState.Error(error.message ?: "Failed to import lyrics")
                 }
+        }
+    }
+
+    /**
+     * Look up BPM for the song and apply it if found.
+     * This is best-effort - if lookup fails, return original song.
+     */
+    private suspend fun lookupAndApplyBpm(song: com.lyricprompter.domain.model.Song): com.lyricprompter.domain.model.Song {
+        val apiKey = BuildConfig.GETSONGBPM_API_KEY
+        if (apiKey.isBlank()) {
+            Log.d(TAG, "No GetSongBPM API key configured, skipping BPM lookup")
+            return song
+        }
+
+        return when (val result = bpmLookupService.lookupBpm(song.title, song.artist, apiKey)) {
+            is BpmResult.Success -> {
+                Log.i(TAG, "Found BPM for '${song.title}': ${result.bpm}")
+                song.copy(
+                    bpm = result.bpm,
+                    originalKey = result.key ?: song.originalKey,
+                    timeSignature = result.timeSignature ?: song.timeSignature
+                )
+            }
+            is BpmResult.NotFound -> {
+                Log.d(TAG, "No BPM found for '${song.title}'")
+                song
+            }
+            is BpmResult.NoApiKey -> {
+                Log.d(TAG, "No API key for BPM lookup")
+                song
+            }
+            is BpmResult.Error -> {
+                Log.w(TAG, "BPM lookup failed: ${result.message}")
+                song
+            }
         }
     }
 
