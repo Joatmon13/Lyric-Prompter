@@ -123,12 +123,16 @@ class SongViewModel @Inject constructor(
                 is BpmResult.Success -> {
                     Log.i(TAG, "Refreshed BPM for '${currentSong.title}': ${result.bpm}, time sig: ${result.timeSignature}, key: ${result.key}")
                     val timeSig = result.timeSignature ?: currentSong.timeSignature
+                    // Calculate optimal count-in bars for the new BPM
+                    val optimalBars = Song.calculateOptimalCountInBars(result.bpm, timeSig)
                     val updatedSong = currentSong.copy(
                         bpm = result.bpm,
                         originalKey = result.key ?: currentSong.originalKey,
                         timeSignature = timeSig,
+                        countInBars = optimalBars,
                         updatedAt = System.currentTimeMillis()
                     )
+                    Log.d(TAG, "Set count-in bars to $optimalBars for ${result.bpm} BPM")
                     _song.value = updatedSong
                     songRepository.saveSong(updatedSong)
                     _bpmRefreshState.value = BpmRefreshState.Success

@@ -1,6 +1,8 @@
 package com.lyricprompter.audio.tts
 
 import android.content.Context
+import android.media.AudioManager
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -114,9 +116,6 @@ class PromptSpeaker @Inject constructor(
             return
         }
 
-        // Note: Bluetooth SCO is pre-connected in enterPerformanceMode()
-        // No need to start it here as it may cause audio routing issues
-
         val utteranceId = UUID.randomUUID().toString()
 
         // Set up completion listener if provided
@@ -149,11 +148,16 @@ class PromptSpeaker @Inject constructor(
         tts?.setSpeechRate(speechRate)
         tts?.setPitch(pitch)
 
-        // Speak with QUEUE_FLUSH to interrupt any current speech
-        @Suppress("DEPRECATION")
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        // Use Bundle params to route audio through voice call stream
+        // This ensures TTS goes through Bluetooth SCO when active
+        val params = Bundle().apply {
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_VOICE_CALL)
+        }
 
-        Log.d(TAG, "Speaking: $text")
+        // Speak with QUEUE_FLUSH to interrupt any current speech
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+
+        Log.d(TAG, "Speaking: $text (stream: VOICE_CALL)")
     }
 
     /**

@@ -1,64 +1,81 @@
 package com.lyricprompter.audio.tts
 
-import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.util.Log
 import com.lyricprompter.audio.routing.AudioRouter
+import com.lyricprompter.domain.model.Song
 import kotlinx.coroutines.delay
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Plays metronome clicks for count-in before a performance.
+ * Handles audio-based count-in using TTS for a fully audio-first experience.
+ * Speaks: song name → key → time signature → count "1, 2, 3, 4" → first line
  */
 @Singleton
 class CountInPlayer @Inject constructor(
-    private val context: Context,
+    private val promptSpeaker: PromptSpeaker,
     private val audioRouter: AudioRouter
 ) {
-    private var toneGenerator: ToneGenerator? = null
     private var isStopped = false
 
     companion object {
         private const val TAG = "CountInPlayer"
-        private const val CLICK_DURATION_MS = 100
     }
 
     /**
-     * Initialize the tone generator.
-     */
-    fun initialize() {
-        if (toneGenerator != null) return
-
-        try {
-            toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
-            Log.i(TAG, "CountInPlayer initialized")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize ToneGenerator", e)
-        }
-    }
-
-    /**
-     * Play count-in clicks at the specified BPM.
+     * Play the full audio-based intro sequence.
      *
-     * @param bpm Beats per minute
-     * @param beats Number of beats to play
-     * @param onBeat Callback for each beat (for UI updates)
-     * @param onComplete Callback when count-in is finished
+     * @param song The song to introduce
+     * @param onBeat Callback for each count beat (for UI updates)
+     * @param onComplete Callback when intro is finished
      */
     suspend fun playCountIn(
-        bpm: Int,
-        beats: Int,
+        song: Song,
         onBeat: (Int) -> Unit,
         onComplete: () -> Unit
     ) {
-        initialize()
         isStopped = false
+        val bpm = song.bpm ?: 120
+        val beats = song.countInTotalBeats
+        val beatsPerBar = song.beatsPerBar
         val intervalMs = (60_000.0 / bpm).toLong()
 
-        Log.i(TAG, "Starting count-in: $beats beats at $bpm BPM (${intervalMs}ms interval)")
+        Log.i(TAG, "Starting audio intro for '${song.title}' at $bpm BPM")
 
+        // Start Bluetooth SCO first so TTS goes to headphones
+        Log.i(TAG, "Starting Bluetooth for audio intro")
+        audioRouter.startBluetoothForPrompts()
+        delay(300) // Give SCO time to connect
+
+        if (isStopped) return
+
+        // 1. Speak song name
+        Log.i(TAG, "Speaking song name: ${song.title}")
+        promptSpeaker.speakAndWait(song.title)
+        delay(400)
+
+        if (isStopped) return
+
+        // 2. Speak key (if set)
+        song.displayKey?.let { key ->
+            Log.i(TAG, "Speaking key: $key")
+            promptSpeaker.speakAndWait("Key of $key")
+            delay(400)
+        }
+
+        if (isStopped) return
+
+        // 3. Speak time signature
+        song.timeSignature?.let { timeSig ->
+            Log.i(TAG, "Speaking time signature: $timeSig")
+            promptSpeaker.speakAndWait("$timeSig time")
+            delay(400)
+        }
+
+        if (isStopped) return
+
+        // 4. Count in (speak numbers at tempo)
+        Log.i(TAG, "Starting count: $beats beats at $bpm BPM")
         for (beat in 1..beats) {
             if (isStopped) {
                 Log.i(TAG, "Count-in stopped")
@@ -66,14 +83,68 @@ class CountInPlayer @Inject constructor(
             }
 
             onBeat(beat)
-            playClick()
+
+            // Speak beat number on downbeats (beat 1 of each bar)
+            val beatInBar = ((beat - 1) % beatsPerBar) + 1
+            if (beatInBar == 1) {
+                val barNumber = ((beat - 1) / beatsPerBar) + 1
+                promptSpeaker.speak(barNumber.toString())
+            }
 
             if (beat < beats) {
                 delay(intervalMs)
             }
         }
 
-        // Small delay after last beat before starting performance
+        // Small pause after last count
+        delay(intervalMs / 2)
+
+        if (isStopped) return
+
+        // 5. Speak first line as prompt
+        val firstLine = song.lines.firstOrNull()?.text
+        if (firstLine != null) {
+            Log.i(TAG, "Speaking first line: $firstLine")
+            promptSpeaker.speakAndWait(firstLine)
+            delay(200)
+        }
+
+        if (!isStopped) {
+            Log.i(TAG, "Audio intro complete")
+            onComplete()
+        }
+    }
+
+    /**
+     * Legacy method for backward compatibility - redirects to full intro.
+     */
+    suspend fun playCountIn(
+        bpm: Int,
+        beats: Int,
+        onBeat: (Int) -> Unit,
+        onComplete: () -> Unit
+    ) {
+        // This is called when song doesn't have full context
+        // Just do a simple numeric count
+        isStopped = false
+        val intervalMs = (60_000.0 / bpm).toLong()
+
+        Log.i(TAG, "Starting simple count-in: $beats beats at $bpm BPM")
+
+        audioRouter.startBluetoothForPrompts()
+        delay(300)
+
+        for (beat in 1..beats) {
+            if (isStopped) return
+
+            onBeat(beat)
+            promptSpeaker.speak(beat.toString())
+
+            if (beat < beats) {
+                delay(intervalMs)
+            }
+        }
+
         delay(intervalMs / 2)
 
         if (!isStopped) {
@@ -83,24 +154,12 @@ class CountInPlayer @Inject constructor(
     }
 
     /**
-     * Play a single click sound.
-     */
-    private fun playClick() {
-        try {
-            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, CLICK_DURATION_MS)
-            Log.d(TAG, "Click!")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to play click", e)
-        }
-    }
-
-    /**
-     * Stop the count-in early.
+     * Stop the intro early.
      */
     fun stop() {
         isStopped = true
-        toneGenerator?.stopTone()
-        Log.i(TAG, "Count-in stopped")
+        promptSpeaker.stop()
+        Log.i(TAG, "Intro stopped")
     }
 
     /**
@@ -108,8 +167,6 @@ class CountInPlayer @Inject constructor(
      */
     fun release() {
         stop()
-        toneGenerator?.release()
-        toneGenerator = null
         Log.i(TAG, "CountInPlayer released")
     }
 }

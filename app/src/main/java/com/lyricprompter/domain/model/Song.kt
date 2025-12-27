@@ -1,5 +1,7 @@
 package com.lyricprompter.domain.model
 
+import kotlin.math.ceil
+
 /**
  * Domain model representing a song with its lyrics and performance settings.
  */
@@ -84,7 +86,12 @@ data class Song(
         /**
          * Count-in bars range.
          */
-        val COUNT_IN_BARS_RANGE = 1..4
+        val COUNT_IN_BARS_RANGE = 2..6
+
+        /**
+         * Target duration for count-in in seconds.
+         */
+        private const val COUNT_IN_TARGET_SECONDS = 8.0
 
         /**
          * Get beats per bar from time signature string.
@@ -98,6 +105,31 @@ data class Song(
                 "12/8" -> 4 // Compound time - felt as 4 beats
                 else -> 4   // Default to 4/4
             }
+        }
+
+        /**
+         * Calculate optimal count-in bars for a given BPM to achieve ~8 seconds.
+         * Returns a value clamped to COUNT_IN_BARS_RANGE.
+         *
+         * Examples (4/4 time):
+         * - 60 BPM → 2 bars (~8 sec)
+         * - 90 BPM → 3 bars (~8 sec)
+         * - 120 BPM → 4 bars (~8 sec)
+         * - 150 BPM → 5 bars (~8 sec)
+         * - 180 BPM → 6 bars (~8 sec)
+         */
+        fun calculateOptimalCountInBars(bpm: Int?, timeSignature: String?): Int {
+            val bpmValue = bpm ?: return 3  // Default if no BPM
+            val beatsPerBarValue = beatsPerBar(timeSignature)
+
+            // Calculate how many beats fit in target duration
+            val beatsInTargetDuration = (COUNT_IN_TARGET_SECONDS * bpmValue) / 60.0
+
+            // Convert to bars (round up to complete bar)
+            val bars = ceil(beatsInTargetDuration / beatsPerBarValue).toInt()
+
+            // Clamp to valid range
+            return bars.coerceIn(COUNT_IN_BARS_RANGE)
         }
     }
 

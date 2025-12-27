@@ -39,9 +39,9 @@ object AudioModule {
     @Provides
     @Singleton
     fun provideCountInPlayer(
-        @ApplicationContext context: Context,
+        promptSpeaker: PromptSpeaker,
         audioRouter: AudioRouter
     ): CountInPlayer {
-        return CountInPlayer(context, audioRouter)
+        return CountInPlayer(promptSpeaker, audioRouter)
     }
 }

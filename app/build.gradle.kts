@@ -1,4 +1,9 @@
 import java.util.Properties
+import java.text.SimpleDateFormat
+import java.util.Date
+
+// Generate build number from timestamp (format: yyMMddHHmm)
+val buildTimestamp = SimpleDateFormat("yyMMddHHmm").format(Date())
 
 plugins {
     alias(libs.plugins.android.application)
@@ -24,7 +29,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "1.0.0-b$buildTimestamp"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

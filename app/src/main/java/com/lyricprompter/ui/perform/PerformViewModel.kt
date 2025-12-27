@@ -86,8 +86,8 @@ class PerformViewModel @Inject constructor(
         Log.i(TAG, "Performance mode entered, audio focus granted: $focusGranted")
 
         viewModelScope.launch {
-            // Count-in only if enabled AND BPM is set (can't do count-in without knowing the tempo)
-            if (song.countInEnabled && song.bpm != null) {
+            // Audio-based intro (speaks song name, key, time sig, count, first line)
+            if (song.countInEnabled) {
                 val beatsPerBar = song.beatsPerBar
                 val totalBars = song.countInBars
                 val totalBeats = song.countInTotalBeats
@@ -108,9 +108,9 @@ class PerformViewModel @Inject constructor(
                     } else state
                 }
 
+                // Use new audio-based intro with full song context
                 countInPlayer.playCountIn(
-                    bpm = song.bpm,
-                    beats = totalBeats,
+                    song = song,
                     onBeat = { beat ->
                         // Calculate which bar and beat within bar (1-indexed)
                         val currentBar = ((beat - 1) / beatsPerBar) + 1
@@ -132,13 +132,12 @@ class PerformViewModel @Inject constructor(
                         }
                     },
                     onComplete = {
-                        // Start Bluetooth SCO after count-in (so metronome isn't muted)
-                        audioRouter.startBluetoothForPrompts()
+                        Log.i(TAG, "Audio intro complete, starting listening")
                         startListening()
                     }
                 )
             } else {
-                // No count-in, start Bluetooth immediately
+                // No intro, start Bluetooth and listening immediately
                 audioRouter.startBluetoothForPrompts()
                 startListening()
             }

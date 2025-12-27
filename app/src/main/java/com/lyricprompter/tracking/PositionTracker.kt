@@ -103,6 +103,12 @@ class PositionTracker @Inject constructor(
         ) {
             lastPromptedLine = matchedLineIndex
 
+            // IMPORTANT: Clear buffer and advance to next line after prompting
+            // This prevents re-matching the same line with old words
+            recognizedBuffer.clear()
+            currentLineIndex = matchedLineIndex + 1
+            Log.d(TAG, "After prompt: cleared buffer, advanced to line $currentLineIndex")
+
             // Get the prompt text (which is for the NEXT line)
             val promptText = currentSong.lines.getOrNull(matchedLineIndex)?.promptText
 

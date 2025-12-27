@@ -186,7 +186,13 @@ fun SongEditorScreen(
             Row(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = bpm,
-                    onValueChange = { bpm = it.filter { c -> c.isDigit() } },
+                    onValueChange = { newBpm ->
+                        bpm = newBpm.filter { c -> c.isDigit() }
+                        // Recalculate optimal count-in bars when BPM changes
+                        newBpm.toIntOrNull()?.let { bpmValue ->
+                            countInBars = Song.calculateOptimalCountInBars(bpmValue, timeSignature).toFloat()
+                        }
+                    },
                     label = { Text(stringResource(R.string.editor_bpm)) },
                     modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -197,7 +203,13 @@ fun SongEditorScreen(
 
                 TimeSignatureDropdown(
                     selectedTimeSignature = timeSignature,
-                    onTimeSignatureSelected = { timeSignature = it },
+                    onTimeSignatureSelected = { newTimeSig ->
+                        timeSignature = newTimeSig
+                        // Recalculate optimal count-in bars when time signature changes
+                        bpm.toIntOrNull()?.let { bpmValue ->
+                            countInBars = Song.calculateOptimalCountInBars(bpmValue, newTimeSig).toFloat()
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -251,8 +263,8 @@ fun SongEditorScreen(
                     label = stringResource(R.string.editor_count_in_bars),
                     value = countInBars,
                     onValueChange = { countInBars = it },
-                    valueRange = 1f..4f,
-                    steps = 2,
+                    valueRange = 2f..6f,
+                    steps = 3,
                     valueDisplay = "${countInBars.toInt()} bars"
                 )
             }

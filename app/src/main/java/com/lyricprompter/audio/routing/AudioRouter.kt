@@ -86,12 +86,18 @@ class AudioRouter @Inject constructor(
     fun startBluetoothSco(): Boolean {
         return try {
             if (isBluetoothConnected()) {
+                Log.i(TAG, "Bluetooth connected, starting SCO...")
+                Log.d(TAG, "Current audio mode: ${audioManager.mode}")
+                Log.d(TAG, "SCO audio state: ${audioManager.isBluetoothScoOn}")
+
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 audioManager.startBluetoothSco()
                 audioManager.isBluetoothScoOn = true
-                Log.i(TAG, "Started Bluetooth SCO")
+
+                Log.i(TAG, "Started Bluetooth SCO - mode: ${audioManager.mode}, sco on: ${audioManager.isBluetoothScoOn}")
                 true
             } else {
+                Log.w(TAG, "No Bluetooth audio device connected")
                 false
             }
         } catch (e: Exception) {

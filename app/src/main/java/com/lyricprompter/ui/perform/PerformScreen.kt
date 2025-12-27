@@ -1,6 +1,10 @@
 package com.lyricprompter.ui.perform
 
 import android.Manifest
+import android.app.Activity
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,11 +26,13 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +83,25 @@ fun PerformScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // Keep screen on during performance
+    DisposableEffect(Unit) {
+        val activity = context as? Activity
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    // Check Bluetooth connection status
+    val isBluetoothConnected = remember {
+        mutableStateOf(checkBluetoothConnected(context))
+    }
+
+    // Check volume level (0-100)
+    val volumePercent = remember {
+        mutableStateOf(getVolumePercent(context))
+    }
 
     // Permission state
     var hasAudioPermission by remember {
@@ -107,6 +134,7 @@ fun PerformScreen(
         modifier = modifier
             .fillMaxSize()
             .background(PerformanceBackground)
+            .statusBarsPadding()  // Respect system bars / camera notch
     ) {
         if (!hasAudioPermission) {
             // Show permission required message
@@ -128,6 +156,8 @@ fun PerformScreen(
                 is PerformUiState.Ready -> {
                     PerformContent(
                         state = state,
+                        isBluetoothConnected = isBluetoothConnected.value,
+                        volumePercent = volumePercent.value,
                         onStart = viewModel::start,
                         onStop = {
                             viewModel.stop()
@@ -238,6 +268,8 @@ private fun ErrorContent(
 @Composable
 private fun PerformContent(
     state: PerformUiState.Ready,
+    isBluetoothConnected: Boolean,
+    volumePercent: Int,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onRestart: () -> Unit,
@@ -280,8 +312,14 @@ private fun PerformContent(
                 }
             }
 
-            // Placeholder for symmetry
-            Box(modifier = Modifier.size(48.dp))
+            // Status indicators (volume + bluetooth)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                VolumeIndicator(volumePercent = volumePercent)
+                BluetoothIndicator(isConnected = isBluetoothConnected)
+            }
         }
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -389,6 +427,11 @@ private fun CountInContent(
     currentBeatInBar: Int,
     beatsPerBar: Int
 ) {
+    // Calculate overall progress (0.0 to 1.0)
+    val totalBeats = totalBars * beatsPerBar
+    val currentBeatPosition = (currentBar - 1) * beatsPerBar + currentBeatInBar
+    val progress = currentBeatPosition.toFloat() / totalBeats.toFloat()
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         // Bar indicator dots at top (small)
         Row(
@@ -459,6 +502,29 @@ private fun CountInContent(
                     )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Progress bar - visual time remaining indicator
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .height(8.dp)
+                .background(
+                    color = PerformanceText.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(4.dp)
+                )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progress)
+                    .height(8.dp)
+                    .background(
+                        color = PerformanceCountIn,
+                        shape = RoundedCornerShape(4.dp)
+                    )
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -732,5 +798,124 @@ private fun FinishedContent(
                 Text(stringResource(R.string.close))
             }
         }
+    }
+}
+
+@Composable
+private fun BluetoothIndicator(isConnected: Boolean) {
+    val connectedColor = Color(0xFF4CAF50)  // Green for connected
+    val disconnectedColor = Color.Red
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(
+                color = if (isConnected)
+                    connectedColor.copy(alpha = 0.3f)
+                else
+                    disconnectedColor.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        // Headphone icon represented as a filled/unfilled circle
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .background(
+                    color = if (isConnected) connectedColor else disconnectedColor,
+                    shape = CircleShape
+                )
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = if (isConnected) "Headphones" else "No Audio",
+            style = PerformanceTypography.nextLine,
+            color = if (isConnected) connectedColor else disconnectedColor
+        )
+    }
+}
+
+@Composable
+private fun VolumeIndicator(volumePercent: Int) {
+    val volumeColor = when {
+        volumePercent == 0 -> Color.Red
+        volumePercent < 30 -> Color(0xFFFF9800)  // Orange - low
+        else -> Color(0xFF4CAF50)  // Green - good
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(
+                color = volumeColor.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        // Vertical volume bar
+        Box(
+            modifier = Modifier
+                .width(8.dp)
+                .height(24.dp)
+                .background(
+                    color = PerformanceText.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(4.dp)
+                )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(volumePercent / 100f)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        color = volumeColor,
+                        shape = RoundedCornerShape(4.dp)
+                    )
+            )
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "$volumePercent%",
+            style = PerformanceTypography.nextLine,
+            color = volumeColor
+        )
+    }
+}
+
+/**
+ * Get current media volume as percentage (0-100).
+ */
+private fun getVolumePercent(context: android.content.Context): Int {
+    return try {
+        val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+        val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (max > 0) (current * 100) / max else 0
+    } catch (e: Exception) {
+        android.util.Log.e("PerformScreen", "Failed to get volume", e)
+        50 // Default to 50% if we can't read it
+    }
+}
+
+/**
+ * Check if a Bluetooth audio device (headphones/earpiece) is connected.
+ */
+private fun checkBluetoothConnected(context: android.content.Context): Boolean {
+    return try {
+        val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val bluetoothDevice = devices.find { device ->
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+            device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+        }
+        val isConnected = bluetoothDevice != null
+        android.util.Log.i("PerformScreen", "Bluetooth check: connected=$isConnected, device=${bluetoothDevice?.productName}, type=${bluetoothDevice?.type}")
+        isConnected
+    } catch (e: Exception) {
+        android.util.Log.e("PerformScreen", "Bluetooth check failed", e)
+        false
     }
 }

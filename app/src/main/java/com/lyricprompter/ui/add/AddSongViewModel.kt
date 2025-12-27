@@ -102,10 +102,14 @@ class AddSongViewModel @Inject constructor(
             is BpmResult.Success -> {
                 Log.i(TAG, "Found BPM for '${song.title}': ${result.bpm}, time sig: ${result.timeSignature}, key: ${result.key}")
                 val timeSig = result.timeSignature ?: song.timeSignature
+                // Calculate optimal count-in bars for the BPM
+                val optimalBars = com.lyricprompter.domain.model.Song.calculateOptimalCountInBars(result.bpm, timeSig)
+                Log.d(TAG, "Set count-in bars to $optimalBars for ${result.bpm} BPM")
                 song.copy(
                     bpm = result.bpm,
                     originalKey = result.key ?: song.originalKey,
-                    timeSignature = timeSig
+                    timeSignature = timeSig,
+                    countInBars = optimalBars
                 )
             }
             is BpmResult.NotFound -> {
