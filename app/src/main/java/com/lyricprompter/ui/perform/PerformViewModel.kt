@@ -9,6 +9,7 @@ import com.lyricprompter.audio.tts.CountInPlayer
 import com.lyricprompter.audio.tts.PromptSpeaker
 import com.lyricprompter.audio.vosk.VoskEngine
 import com.lyricprompter.data.repository.SongRepository
+import com.lyricprompter.diagnostics.DiagnosticLogger
 import com.lyricprompter.domain.model.PerformanceState
 import com.lyricprompter.domain.model.PerformanceStatus
 import com.lyricprompter.domain.model.Song
@@ -30,12 +31,17 @@ class PerformViewModel @Inject constructor(
     private val positionTracker: PositionTracker,
     private val promptSpeaker: PromptSpeaker,
     private val countInPlayer: CountInPlayer,
-    private val audioRouter: AudioRouter
+    private val audioRouter: AudioRouter,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     companion object {
-        private const val TAG = "PerformViewModel"
+        private const val TAG = "LP.Session"
     }
+
+    private var sessionStartTime: Long = 0
+    private var promptedCount = 0
+    private var skippedCount = 0
 
     private val songId: String = checkNotNull(savedStateHandle["songId"])
 
@@ -48,32 +54,31 @@ class PerformViewModel @Inject constructor(
 
     private fun loadSong() {
         viewModelScope.launch {
-            Log.d(TAG, "Loading song: $songId")
             val song = songRepository.getSongById(songId)
             if (song == null) {
-                Log.e(TAG, "Song not found: $songId")
+                Log.e(TAG, "[LOAD_ERROR] songId=$songId | error=not_found")
                 _uiState.value = PerformUiState.Error("Song not found")
                 return@launch
             }
 
-            Log.d(TAG, "Song loaded: ${song.title}, vocabulary size: ${song.vocabulary.size}")
-
             // Initialize components
             promptSpeaker.initialize()
-
             val vocabResult = voskEngine.loadVocabulary(song.vocabulary)
-            if (vocabResult.isFailure) {
-                Log.e(TAG, "Failed to load vocabulary: ${vocabResult.exceptionOrNull()?.message}")
-            } else {
-                Log.d(TAG, "Vocabulary loaded successfully")
-            }
-
             positionTracker.loadSong(song)
+
+            // Log vocabulary load to diagnostics
+            diagnosticLogger.logVocabLoaded(song.vocabulary.size)
 
             _uiState.value = PerformUiState.Ready(
                 state = PerformanceState.initial(song)
             )
-            Log.d(TAG, "Ready for performance")
+
+            Log.i(TAG, "[SONG_LOADED] " +
+                "song=\"${song.title}\" | " +
+                "artist=\"${song.artist}\" | " +
+                "lines=${song.lineCount} | " +
+                "vocabSize=${song.vocabulary.size} | " +
+                "vocabLoaded=${vocabResult.isSuccess}")
         }
     }
 
@@ -81,9 +86,32 @@ class PerformViewModel @Inject constructor(
         val currentState = (_uiState.value as? PerformUiState.Ready)?.state ?: return
         val song = currentState.song
 
+        // Reset counters
+        sessionStartTime = System.currentTimeMillis()
+        promptedCount = 0
+        skippedCount = 0
+
         // Enter performance mode to prevent interruptions
         val focusGranted = audioRouter.enterPerformanceMode(enableDndMode = true)
-        Log.i(TAG, "Performance mode entered, audio focus granted: $focusGranted")
+        val usePhoneMic = audioRouter.usePhoneMic
+        val btConnected = audioRouter.isBluetoothConnected()
+        val audioSource = if (usePhoneMic) "PHONE_MIC+A2DP" else "BLUETOOTH_SCO"
+
+        // Start diagnostic session
+        diagnosticLogger.startSession(
+            song = song,
+            usePhoneMic = usePhoneMic,
+            bluetoothConnected = btConnected
+        )
+
+        Log.i(TAG, "[SESSION_START] " +
+            "song=\"${song.title}\" | " +
+            "artist=\"${song.artist}\" | " +
+            "lines=${song.lineCount} | " +
+            "triggerPct=${song.triggerPercent} | " +
+            "promptWords=${song.promptWordCount} | " +
+            "audioSource=$audioSource | " +
+            "audioFocus=$focusGranted")
 
         viewModelScope.launch {
             // Audio-based intro (speaks song name, key, time sig, count, first line)
@@ -132,7 +160,7 @@ class PerformViewModel @Inject constructor(
                         }
                     },
                     onComplete = {
-                        Log.i(TAG, "Audio intro complete, starting listening")
+                        Log.d(TAG, "[COUNT_IN_DONE] starting_listening")
                         startListening()
                     }
                 )
@@ -145,7 +173,7 @@ class PerformViewModel @Inject constructor(
     }
 
     private fun startListening() {
-        Log.i(TAG, "Starting listening...")
+        Log.i(TAG, "[LISTENING_START]")
         _uiState.update { state ->
             if (state is PerformUiState.Ready) {
                 state.copy(
@@ -159,31 +187,26 @@ class PerformViewModel @Inject constructor(
 
         voskEngine.startListening(
             onPartialResult = { text ->
-                Log.d(TAG, "Partial result: $text")
-                handleRecognition(text)
+                handleRecognition(text, isPartial = true)
             },
             onFinalResult = { text ->
-                Log.d(TAG, "Final result: $text")
-                handleRecognition(text)
+                handleRecognition(text, isPartial = false)
             },
             onError = { error ->
-                Log.e(TAG, "Recognition error: ${error.message}", error)
+                Log.e(TAG, "[VOSK_ERROR] error=\"${error.message}\"")
             }
         )
     }
 
-    private fun handleRecognition(text: String) {
-        Log.v(TAG, "Handle recognition: '$text'")
+    private fun handleRecognition(text: String, isPartial: Boolean = false) {
         val words = text.lowercase()
             .split(Regex("\\s+"))
             .filter { it.isNotEmpty() && it != "[unk]" }
 
-        if (words.isEmpty()) {
-            Log.v(TAG, "No valid words in recognition")
-            return
-        }
+        if (words.isEmpty()) return
 
-        Log.d(TAG, "Recognized words: $words")
+        // Log Vosk recognition to diagnostics
+        diagnosticLogger.logVoskResult(text, words.size, isFinal = !isPartial)
 
         val event = positionTracker.onWordsRecognized(words)
         val trackingState = positionTracker.getState()
@@ -204,6 +227,20 @@ class PerformViewModel @Inject constructor(
         // Handle prompt events
         when (event) {
             is PromptEvent.SpeakPrompt -> {
+                promptedCount++
+                val elapsed = (System.currentTimeMillis() - sessionStartTime) / 1000.0
+                Log.i(TAG, "[PROMPT_FIRED] " +
+                    "line=${event.lineIndex} | " +
+                    "promptText=\"${event.promptText}\" | " +
+                    "elapsed=${"%.1f".format(elapsed)}s")
+
+                // Log prompt to diagnostics
+                diagnosticLogger.logPromptFired(
+                    lineIndex = event.lineIndex,
+                    promptText = event.promptText,
+                    wordCount = event.promptText.split(Regex("\\s+")).size
+                )
+
                 // Brief pause before speaking to let user finish their phrase
                 viewModelScope.launch {
                     kotlinx.coroutines.delay(150)
@@ -220,6 +257,7 @@ class PerformViewModel @Inject constructor(
                 }
             }
             is PromptEvent.SongFinished -> {
+                Log.i(TAG, "[SONG_FINISHED] prompted=$promptedCount")
                 stop()
             }
             else -> { /* No action */ }
@@ -231,7 +269,18 @@ class PerformViewModel @Inject constructor(
         countInPlayer.stop()
         promptSpeaker.stop()
         audioRouter.exitPerformanceMode()
-        Log.i(TAG, "Performance mode exited")
+
+        // End diagnostic session
+        diagnosticLogger.endSession()
+
+        val duration = (System.currentTimeMillis() - sessionStartTime) / 1000.0
+        val currentState = (_uiState.value as? PerformUiState.Ready)?.state
+        val totalLines = currentState?.song?.lineCount ?: 0
+
+        Log.i(TAG, "[SESSION_END] " +
+            "duration=${"%.1f".format(duration)}s | " +
+            "linesTotal=$totalLines | " +
+            "linesPrompted=$promptedCount")
 
         _uiState.update { state ->
             if (state is PerformUiState.Ready) {

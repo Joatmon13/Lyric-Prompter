@@ -68,7 +68,8 @@ fun SongEditorScreen(
     var countInEnabled by remember { mutableStateOf(true) }
     var countInBars by remember { mutableFloatStateOf(3f) }
     var triggerPercent by remember { mutableFloatStateOf(70f) }
-    var promptWordCount by remember { mutableFloatStateOf(4f) }
+    var promptWordCount by remember { mutableFloatStateOf(0f) }
+    var fullLinePrompt by remember { mutableStateOf(true) }
 
     // Load song if editing existing
     LaunchedEffect(songId) {
@@ -91,6 +92,7 @@ fun SongEditorScreen(
             countInBars = s.countInBars.toFloat()
             triggerPercent = s.triggerPercent.toFloat()
             promptWordCount = s.promptWordCount.toFloat()
+            fullLinePrompt = s.promptWordCount == 0
         }
     }
 
@@ -109,7 +111,8 @@ fun SongEditorScreen(
                         onClick = {
                             if (songId == null) {
                                 // Create new song
-                                val newSong = viewModel.createNewSong(title, artist, lyrics)
+                                val effectiveWordCount = if (fullLinePrompt) 0 else promptWordCount.toInt()
+                                val newSong = viewModel.createNewSong(title, artist, lyrics, effectiveWordCount)
                                 val songWithSettings = newSong.copy(
                                     bpm = bpm.toIntOrNull(),
                                     originalKey = originalKey,
@@ -118,11 +121,12 @@ fun SongEditorScreen(
                                     countInEnabled = countInEnabled,
                                     countInBars = countInBars.toInt(),
                                     triggerPercent = triggerPercent.toInt(),
-                                    promptWordCount = promptWordCount.toInt()
+                                    promptWordCount = effectiveWordCount
                                 )
                                 viewModel.saveSong(songWithSettings)
                             } else {
                                 // Update existing song
+                                val effectiveWordCount = if (fullLinePrompt) 0 else promptWordCount.toInt()
                                 viewModel.updateSong(
                                     title = title,
                                     artist = artist,
@@ -134,7 +138,7 @@ fun SongEditorScreen(
                                     countInEnabled = countInEnabled,
                                     countInBars = countInBars.toInt(),
                                     triggerPercent = triggerPercent.toInt(),
-                                    promptWordCount = promptWordCount.toInt()
+                                    promptWordCount = effectiveWordCount
                                 )
                                 viewModel.song.value?.let { viewModel.saveSong(it) }
                             }
@@ -273,18 +277,41 @@ fun SongEditorScreen(
                 label = stringResource(R.string.editor_trigger_percent),
                 value = triggerPercent,
                 onValueChange = { triggerPercent = it },
-                valueRange = 40f..90f,
-                steps = 9,
+                valueRange = 20f..90f,
+                steps = 13,
                 valueDisplay = "${triggerPercent.toInt()}%"
             )
 
-            SliderSetting(
-                label = stringResource(R.string.editor_prompt_words),
-                value = promptWordCount,
-                onValueChange = { promptWordCount = it },
-                valueRange = 2f..6f,
-                steps = 3
-            )
+            // Full Line toggle with conditional word count slider
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Prompt Full Line",
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = fullLinePrompt,
+                    onCheckedChange = {
+                        fullLinePrompt = it
+                        if (!it && promptWordCount < 2f) {
+                            promptWordCount = 4f // Default to 4 words when turning off full line
+                        }
+                    }
+                )
+            }
+
+            if (!fullLinePrompt) {
+                SliderSetting(
+                    label = stringResource(R.string.editor_prompt_words),
+                    value = promptWordCount.coerceIn(2f, 10f),
+                    onValueChange = { promptWordCount = it },
+                    valueRange = 2f..10f,
+                    steps = 7,
+                    valueDisplay = "${promptWordCount.toInt()} words"
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 

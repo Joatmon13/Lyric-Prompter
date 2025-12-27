@@ -76,6 +76,8 @@
     <string name="settings_tts_voice">TTS Voice</string>
     <string name="settings_tts_speed">TTS Speed</string>
     <string name="settings_audio_output">Audio Output</string>
+    <string name="settings_use_phone_mic">Use Phone Mic</string>
+    <string name="settings_use_phone_mic_description">Better recognition quality. Prompts play through Bluetooth, voice captured by phone mic.</string>
     <string name="settings_display">Display</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_keep_screen_on">Keep Screen On</string>

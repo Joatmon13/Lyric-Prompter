@@ -42,10 +42,15 @@ class CountInPlayer @Inject constructor(
 
         Log.i(TAG, "Starting audio intro for '${song.title}' at $bpm BPM")
 
-        // Start Bluetooth SCO first so TTS goes to headphones
+        // Start Bluetooth audio routing - either SCO or A2DP depending on settings
         Log.i(TAG, "Starting Bluetooth for audio intro")
         audioRouter.startBluetoothForPrompts()
-        delay(600) // Give SCO time to fully connect (prevents clipping first word)
+        delay(300) // Short delay for audio route to stabilize
+
+        // Double-check volume isn't muted after audio routing setup
+        Log.i(TAG, "Re-checking volume after audio setup delay...")
+        audioRouter.ensureVolumeNotMuted()
+        delay(300) // Additional delay before speaking
 
         if (isStopped) return
 

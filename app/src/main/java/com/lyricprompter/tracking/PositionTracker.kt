@@ -22,20 +22,20 @@ class PositionTracker @Inject constructor(
     var onGrammarUpdateNeeded: ((Set<String>) -> Unit)? = null
 
     companion object {
-        private const val TAG = "PositionTracker"
+        private const val TAG = "LP.Tracker"
 
-        // How many lines ahead/behind to search - very tight to prevent jumping
+        // How many lines ahead/behind to search
         private const val SEARCH_WINDOW_BEFORE = 0  // Never go back
-        private const val SEARCH_WINDOW_AFTER = 1   // Only look at next line
+        const val SEARCH_WINDOW_AFTER = 2   // Look at next 2 lines (allows catching up if one line missed)
 
         // Max words to keep in buffer
-        private const val MAX_BUFFER_SIZE = 15
+        const val MAX_BUFFER_SIZE = 20
 
-        // Words to keep after prompting (reduced to prevent stale matches)
-        private const val KEEP_AFTER_PROMPT = 3
+        // Words to keep after prompting
+        const val KEEP_AFTER_PROMPT = 5
 
         // How many lines to include in focused grammar (current + next N)
-        private const val GRAMMAR_LINES_AHEAD = 3
+        private const val GRAMMAR_LINES_AHEAD = 4
     }
 
     /**
@@ -45,6 +45,7 @@ class PositionTracker @Inject constructor(
         this.song = song
         this.lineWordsList = song.lines.map { it.words }
         reset()
+        Log.i(TAG, "[SONG_LOADED] lines=${song.lineCount} | triggerPct=${song.triggerPercent}")
     }
 
     /**
@@ -114,17 +115,20 @@ class PositionTracker @Inject constructor(
         )
 
         if (match == null) {
-            Log.v(TAG, "No match found in window $searchWindow, buffer: ${recognizedBuffer.takeLast(5)}")
             return null
         }
 
         val (matchedLineIndex, matchScore) = match
-        val lineText = currentSong.lines.getOrNull(matchedLineIndex)?.text?.take(30) ?: ""
-        Log.d(TAG, "Match: line $matchedLineIndex (${(matchScore * 100).toInt()}%) '$lineText...' trigger=${currentSong.triggerPercent}% lastPrompted=$lastPromptedLine")
+        val lineText = currentSong.lines.getOrNull(matchedLineIndex)?.text?.take(40) ?: ""
+        Log.d(TAG, "[MATCH_RESULT] " +
+            "line=$matchedLineIndex | " +
+            "score=${(matchScore * 100).toInt()}% | " +
+            "trigger=${currentSong.triggerPercent}% | " +
+            "text=\"$lineText\"")
 
         // Update current position if we've moved forward
         if (matchedLineIndex > currentLineIndex) {
-            Log.d(TAG, "Advanced from line $currentLineIndex to $matchedLineIndex")
+            Log.i(TAG, "[LINE_ADVANCE] from=$currentLineIndex | to=$matchedLineIndex")
             currentLineIndex = matchedLineIndex
         }
 
@@ -138,9 +142,19 @@ class PositionTracker @Inject constructor(
                 lineWordCount = lineWordCount
             )
         ) {
+            // Check if we skipped any lines - if so, prompt the next expected line instead
+            val expectedLine = lastPromptedLine + 1
+            if (matchedLineIndex > expectedLine && expectedLine < lineWordsList.size) {
+                Log.w(TAG, "[LINE_SKIP] expected=$expectedLine | matched=$matchedLineIndex | prompting_expected")
+                return triggerPrompt(expectedLine, currentSong)
+            }
             return triggerPrompt(matchedLineIndex, currentSong)
         } else {
-            Log.v(TAG, "Not prompting: score ${(matchScore * 100).toInt()}% < ${currentSong.triggerPercent}% OR already prompted (last=$lastPromptedLine)")
+            Log.v(TAG, "[THRESHOLD_NOT_MET] " +
+                "line=$matchedLineIndex | " +
+                "score=${(matchScore * 100).toInt()}% | " +
+                "trigger=${currentSong.triggerPercent}% | " +
+                "lastPrompted=$lastPromptedLine")
         }
 
         return null
@@ -159,24 +173,24 @@ class PositionTracker @Inject constructor(
 
         // Advance position to next line
         currentLineIndex = lineIndex + 1
-        Log.d(TAG, "After prompt: kept ${wordsToKeep.size} words, advanced to line $currentLineIndex")
-
-        // NOTE: We can't update Vosk grammar while recognition is active (causes native crash)
-        // Grammar is set at song start and remains for the whole song
 
         // Get the prompt text (which is for the NEXT line)
         val promptText = currentSong.lines.getOrNull(lineIndex)?.promptText
 
         return if (promptText.isNullOrEmpty()) {
             if (lineIndex >= lineWordsList.lastIndex) {
-                Log.i(TAG, "Song finished at line $lineIndex")
+                Log.i(TAG, "[SONG_COMPLETE] lastLine=$lineIndex")
                 PromptEvent.SongFinished
             } else {
-                Log.i(TAG, "Line $lineIndex completed (no prompt text)")
+                Log.i(TAG, "[LINE_COMPLETE] line=$lineIndex | noPromptText")
                 PromptEvent.LineCompleted(lineIndex)
             }
         } else {
-            Log.i(TAG, "PROMPT line $lineIndex: '$promptText'")
+            Log.i(TAG, "[TRIGGER_PROMPT] " +
+                "line=$lineIndex | " +
+                "nextLine=${lineIndex + 1} | " +
+                "promptText=\"$promptText\" | " +
+                "bufferKept=${wordsToKeep.size}")
             PromptEvent.SpeakPrompt(
                 lineIndex = lineIndex,
                 promptText = promptText
@@ -206,6 +220,24 @@ class PositionTracker @Inject constructor(
         currentLineIndex = lineIndex.coerceIn(0, maxIndex)
         // Don't reset lastPromptedLine - prevent re-prompting lines already done
         recognizedBuffer.clear()
+    }
+
+    /**
+     * Mark that the first line has been spoken during count-in.
+     * This sets lastPromptedLine to -1 (since we spoke line 0's text as intro,
+     * and line 0's promptText is for line 1), and sets currentLineIndex to 0.
+     * When line 0 is matched, it will prompt line 1.
+     */
+    fun markFirstLineSpoken() {
+        // The count-in speaks line 0's TEXT (the actual lyrics of line 0)
+        // So the user will then sing line 0, and we need to detect that
+        // and prompt with line 0's promptText (which is line 1's lyrics)
+        // This is correct - lastPromptedLine should stay at -1
+        // currentLineIndex should be 0 (we're tracking line 0)
+        currentLineIndex = 0
+        lastPromptedLine = -1
+        recognizedBuffer.clear()
+        Log.d(TAG, "First line spoken during count-in, ready to track line 0")
     }
 }
 

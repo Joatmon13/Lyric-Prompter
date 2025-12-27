@@ -8,8 +8,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.lyricprompter.audio.routing.AudioRouter
+import com.lyricprompter.diagnostics.DiagnosticLogger
 import com.lyricprompter.ui.add.AddSongScreen
 import com.lyricprompter.ui.library.LibraryScreen
+import com.lyricprompter.ui.logs.SessionLogsScreen
 import com.lyricprompter.ui.perform.PerformScreen
 import com.lyricprompter.ui.setlist.SetlistDetailScreen
 import com.lyricprompter.ui.setlist.SetlistListScreen
@@ -30,6 +33,7 @@ object Routes {
     const val SETLIST_LIST = "setlists"
     const val SETLIST_DETAIL = "setlist/{setlistId}"
     const val SETTINGS = "settings"
+    const val SESSION_LOGS = "logs"
 
     fun songDetail(songId: String) = "song/$songId"
     fun songEditor(songId: String) = "song/$songId/edit"
@@ -42,6 +46,8 @@ object Routes {
  */
 @Composable
 fun LyricPrompterNavHost(
+    audioRouter: AudioRouter,
+    diagnosticLogger: DiagnosticLogger,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
     startDestination: String = Routes.LIBRARY
@@ -171,7 +177,17 @@ fun LyricPrompterNavHost(
         // Settings Screen
         composable(Routes.SETTINGS) {
             SettingsScreen(
-                onBackClick = { navController.popBackStack() }
+                audioRouter = audioRouter,
+                diagnosticLogger = diagnosticLogger,
+                onBackClick = { navController.popBackStack() },
+                onSessionLogsClick = { navController.navigate(Routes.SESSION_LOGS) }
+            )
+        }
+
+        // Session Logs Screen
+        composable(Routes.SESSION_LOGS) {
+            SessionLogsScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

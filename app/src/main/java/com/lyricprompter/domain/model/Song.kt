@@ -22,7 +22,7 @@ data class Song(
 
     // Prompt settings
     val triggerPercent: Int = 70,      // 40-90
-    val promptWordCount: Int = 4,       // 2-6
+    val promptWordCount: Int = 0,       // 0 = full line, or 2-10 words
 
     // Lyrics
     val lines: List<LyricLine> = emptyList(),
@@ -74,14 +74,14 @@ data class Song(
         val BPM_RANGE = 40..220
 
         /**
-         * Trigger percent range.
+         * Trigger percent range. Lower values (20-30%) work better for singing.
          */
-        val TRIGGER_PERCENT_RANGE = 40..90
+        val TRIGGER_PERCENT_RANGE = 20..90
 
         /**
-         * Prompt word count range.
+         * Prompt word count range. 0 means full line.
          */
-        val PROMPT_WORD_COUNT_RANGE = 2..6
+        val PROMPT_WORD_COUNT_RANGE = 0..10
 
         /**
          * Count-in bars range.

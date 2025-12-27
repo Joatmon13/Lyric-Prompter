@@ -31,9 +31,10 @@ object AudioModule {
     @Provides
     @Singleton
     fun providePromptSpeaker(
-        @ApplicationContext context: Context
+        @ApplicationContext context: Context,
+        audioRouter: AudioRouter
     ): PromptSpeaker {
-        return PromptSpeaker(context)
+        return PromptSpeaker(context, audioRouter)
     }
 
     @Provides

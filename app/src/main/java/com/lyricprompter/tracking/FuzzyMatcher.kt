@@ -1,5 +1,6 @@
 package com.lyricprompter.tracking
 
+import android.util.Log
 import javax.inject.Inject
 import kotlin.math.min
 
@@ -11,12 +12,15 @@ import kotlin.math.min
 class FuzzyMatcher @Inject constructor() {
 
     companion object {
+        private const val TAG = "LP.Matcher"
+
         // Levenshtein distance threshold as a ratio of word length
-        // E.g., for a 5-letter word, allow up to 2 edits (5 * 0.4 = 2)
-        private const val EDIT_DISTANCE_RATIO = 0.4f
+        // E.g., for a 5-letter word, allow up to 2-3 edits (5 * 0.5 = 2.5)
+        // More lenient to account for Vosk recognition errors
+        const val EDIT_DISTANCE_RATIO = 0.5f
 
         // Minimum word length for fuzzy matching (short words must be exact)
-        private const val MIN_FUZZY_WORD_LENGTH = 3
+        const val MIN_FUZZY_WORD_LENGTH = 3
     }
 
     /**
@@ -56,14 +60,23 @@ class FuzzyMatcher @Inject constructor() {
 
         var bestIndex = -1
         var bestScore = 0f
+        val matchResults = mutableListOf<String>()
 
         for (index in validRange) {
-            val score = matchScore(recognizedWords, lineWordsList[index])
+            val lineWords = lineWordsList[index]
+            val score = matchScore(recognizedWords, lineWords)
+            matchResults.add("L$index=${(score * 100).toInt()}%")
             if (score > bestScore) {
                 bestScore = score
                 bestIndex = index
             }
         }
+
+        // Log all match attempts for the search window
+        Log.d(TAG, "[MATCH_SEARCH] " +
+            "window=${validRange.first}-${validRange.last} | " +
+            "buffer=${recognizedWords.takeLast(8).joinToString(" ")} | " +
+            "scores=${matchResults.joinToString(",")}")
 
         return if (bestIndex >= 0 && bestScore > 0f) {
             bestIndex to bestScore
@@ -114,11 +127,74 @@ class FuzzyMatcher @Inject constructor() {
         // Check if words share the same root (handles plurals, verb forms)
         if (sharesStem(recognized, expected)) return true
 
+        // Check phonetic similarity (handles Vosk mishearing)
+        if (phoneticMatch(recognized, expected)) return true
+
         // Calculate allowed edit distance based on word length
         val maxDistance = (expected.length * EDIT_DISTANCE_RATIO).toInt().coerceAtLeast(1)
         val distance = levenshteinDistance(recognized, expected)
 
         return distance <= maxDistance
+    }
+
+    /**
+     * Check if words are phonetically similar (sound-alike matching).
+     * Handles common Vosk recognition errors.
+     */
+    private fun phoneticMatch(recognized: String, expected: String): Boolean {
+        // Normalize to phonetic representation
+        val recPhonetic = toPhonetic(recognized)
+        val expPhonetic = toPhonetic(expected)
+
+        // If phonetic forms match, consider it a match
+        if (recPhonetic == expPhonetic) return true
+
+        // Check phonetic edit distance (more lenient than character-based)
+        if (recPhonetic.length >= 3 && expPhonetic.length >= 3) {
+            val phoneticDistance = levenshteinDistance(recPhonetic, expPhonetic)
+            val maxPhoneticDistance = (expPhonetic.length * 0.4).toInt().coerceAtLeast(1)
+            if (phoneticDistance <= maxPhoneticDistance) return true
+        }
+
+        return false
+    }
+
+    /**
+     * Convert word to simplified phonetic representation.
+     * Reduces similar-sounding letters to same representation.
+     */
+    private fun toPhonetic(word: String): String {
+        return word
+            // Silent letters and common reductions
+            .replace("ght", "t")
+            .replace("gh", "")
+            .replace("kn", "n")
+            .replace("wr", "r")
+            .replace("mb", "m")
+            .replace("mn", "n")
+            // Similar vowel sounds
+            .replace("ee", "i")
+            .replace("ea", "i")
+            .replace("ie", "i")
+            .replace("ey", "i")
+            .replace("ay", "a")
+            .replace("ai", "a")
+            .replace("oo", "u")
+            .replace("ou", "u")
+            .replace("ow", "o")
+            .replace("oa", "o")
+            // Similar consonant sounds
+            .replace("ph", "f")
+            .replace("ck", "k")
+            .replace("c", "k")
+            .replace("qu", "kw")
+            .replace("x", "ks")
+            .replace("z", "s")
+            // Endings that sound similar
+            .replace("tion", "shun")
+            .replace("sion", "shun")
+            // Double letters don't change sound
+            .replace(Regex("(.)\\1+"), "$1")
     }
 
     /**

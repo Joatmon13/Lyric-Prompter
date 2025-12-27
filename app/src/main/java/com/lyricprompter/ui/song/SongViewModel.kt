@@ -42,11 +42,12 @@ class SongViewModel @Inject constructor(
         }
     }
 
-    fun createNewSong(title: String, artist: String, lyrics: String): Song {
+    fun createNewSong(title: String, artist: String, lyrics: String, promptWordCount: Int = 0): Song {
         return processLyricsUseCase.process(
             rawLyrics = lyrics,
             title = title,
-            artist = artist
+            artist = artist,
+            promptWordCount = promptWordCount
         )
     }
 

@@ -27,14 +27,26 @@ class AudioRouter @Inject constructor(
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val notificationManager: NotificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private val prefs = context.getSharedPreferences("lyricprompter_prefs", Context.MODE_PRIVATE)
 
     private var audioFocusRequest: AudioFocusRequest? = null
     private var previousDndMode: Int = NotificationManager.INTERRUPTION_FILTER_ALL
     private var dndWasEnabled = false
+    private var savedBluetoothVolume: Int = -1
+    private var savedMusicVolume: Int = -1
 
     companion object {
-        private const val TAG = "AudioRouter"
+        private const val TAG = "LP.Audio"
+        private const val PREF_USE_PHONE_MIC = "use_phone_mic"
     }
+
+    /**
+     * Whether to use phone mic for recognition (better quality) while routing
+     * TTS output to Bluetooth via A2DP only (no SCO).
+     */
+    var usePhoneMic: Boolean
+        get() = prefs.getBoolean(PREF_USE_PHONE_MIC, false)
+        set(value) = prefs.edit().putBoolean(PREF_USE_PHONE_MIC, value).apply()
 
     /**
      * Check if a Bluetooth audio device is connected.
@@ -90,9 +102,17 @@ class AudioRouter @Inject constructor(
                 Log.d(TAG, "Current audio mode: ${audioManager.mode}")
                 Log.d(TAG, "SCO audio state: ${audioManager.isBluetoothScoOn}")
 
+                // Save current Bluetooth volume before mode change (MODE_IN_COMMUNICATION can reset it)
+                savedBluetoothVolume = audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+                val btMusicVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                Log.d(TAG, "Saving volumes - VOICE_CALL: $savedBluetoothVolume, MUSIC: $btMusicVolume")
+
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 audioManager.startBluetoothSco()
                 audioManager.isBluetoothScoOn = true
+
+                // Restore volume if it was reset by mode change
+                ensureVolumeNotMuted()
 
                 Log.i(TAG, "Started Bluetooth SCO - mode: ${audioManager.mode}, sco on: ${audioManager.isBluetoothScoOn}")
                 true
@@ -153,13 +173,15 @@ class AudioRouter @Inject constructor(
     /**
      * Request exclusive audio focus to prevent other apps from interrupting.
      * This will duck or pause other audio sources.
+     *
+     * NOTE: We use USAGE_MEDIA to match TTS output, ensuring consistent audio routing.
      */
     fun requestAudioFocus(): Boolean {
         return try {
             val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -171,6 +193,12 @@ class AudioRouter @Inject constructor(
             val result = audioManager.requestAudioFocus(focusRequest)
             val success = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             Log.i(TAG, "Audio focus request: ${if (success) "granted" else "denied"}")
+
+            // Ensure volume wasn't muted by audio focus request
+            if (success) {
+                ensureVolumeNotMuted()
+            }
+
             success
         } catch (e: Exception) {
             Log.e(TAG, "Failed to request audio focus", e)
@@ -245,31 +273,107 @@ class AudioRouter @Inject constructor(
     }
 
     /**
-     * Enter performance mode: request audio focus and optionally enable DND.
-     * Note: Bluetooth SCO should be started separately after count-in completes
-     * to avoid muting the metronome/count-in audio.
+     * Enter performance mode.
+     *
+     * NOTE: We DO NOT request audio focus because it suspends Bluetooth A2DP
+     * on some devices (including Pixel 9), causing TTS to have no audio output.
+     * The side effect is that other apps can interrupt our performance, but
+     * at least we can hear the prompts.
+     *
+     * NOTE: We also skip DND for now as it may block TTS output.
+     *
+     * TODO: Investigate alternative audio focus strategies that don't suspend A2DP.
      */
     fun enterPerformanceMode(enableDndMode: Boolean = true): Boolean {
-        val focusGranted = requestAudioFocus()
+        // Save current volumes before any audio mode changes
+        savedMusicVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        savedBluetoothVolume = audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+        Log.d(TAG, "Entering performance mode - saved volumes: MUSIC=$savedMusicVolume, VOICE_CALL=$savedBluetoothVolume")
 
-        if (enableDndMode && canModifyDnd()) {
-            enableDnd()
+        // Skip audio focus - it suspends Bluetooth A2DP and causes silence
+        // Skip DND - it may block TTS output
+        Log.i(TAG, "Performance mode: skipping audio focus and DND to preserve A2DP/TTS")
+
+        return true
+    }
+
+    /**
+     * Ensure Bluetooth/media volume wasn't muted by audio mode changes.
+     * Made public so it can be called after audio routing stabilizes.
+     */
+    fun ensureVolumeNotMuted() {
+        val currentMusicVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val currentCallVolume = audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+        val maxMusicVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+
+        Log.d(TAG, "[VOLUME_CHECK] " +
+            "MUSIC=$currentMusicVolume/$maxMusicVolume | " +
+            "VOICE_CALL=$currentCallVolume | " +
+            "savedMusic=$savedMusicVolume | " +
+            "savedBT=$savedBluetoothVolume")
+
+        // Restore MUSIC volume if it was reset
+        if (currentMusicVolume == 0 && savedMusicVolume > 0) {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, savedMusicVolume, 0)
+            Log.i(TAG, "Restored MUSIC volume from 0 to $savedMusicVolume")
+        } else if (currentMusicVolume == 0 && savedMusicVolume <= 0) {
+            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val defaultVolume = (maxVolume * 0.7).toInt()  // 70% default
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, defaultVolume, 0)
+            Log.i(TAG, "Set MUSIC volume to default $defaultVolume")
         }
 
-        return focusGranted
+        // Restore VOICE_CALL volume if it was reset
+        if (currentCallVolume == 0 && savedBluetoothVolume > 0) {
+            audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, savedBluetoothVolume, 0)
+            Log.i(TAG, "Restored VOICE_CALL volume from 0 to $savedBluetoothVolume")
+        } else if (currentCallVolume == 0 && savedBluetoothVolume <= 0) {
+            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            val defaultVolume = maxVolume / 2
+            audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, defaultVolume, 0)
+            Log.i(TAG, "Set VOICE_CALL volume to default $defaultVolume")
+        }
     }
 
     /**
      * Start Bluetooth audio routing for TTS prompts.
      * Call this after count-in completes (if any) to avoid muting metronome.
+     *
+     * NOTE: We now ALWAYS skip SCO mode because:
+     * 1. SCO causes volume to reset to zero on many devices
+     * 2. TTS works fine over A2DP (normal media routing)
+     * 3. SCO is really designed for phone calls, not TTS
+     *
+     * The usePhoneMic setting now only affects which mic is used for recognition,
+     * not the audio output routing.
+     *
+     * TODO: Investigate if we can use SCO for Bluetooth earpiece mic without
+     * causing volume reset. This would allow using the earpiece mic for voice
+     * recognition when the phone is in a pocket. Current workaround requires
+     * phone mic to be near the performer. See volume reset issue when calling
+     * audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
      */
     fun startBluetoothForPrompts(): Boolean {
-        return if (isBluetoothConnected()) {
-            startBluetoothSco()
-        } else {
-            Log.i(TAG, "No Bluetooth connected, prompts will play through speaker")
-            true
-        }
+        val btConnected = isBluetoothConnected()
+
+        // Always ensure volume is not muted before starting audio
+        ensureVolumeNotMuted()
+
+        // Log the audio configuration
+        val audioSource = if (usePhoneMic) "PHONE_MIC" else "BT_MIC"
+        Log.i(TAG, "[AUDIO_CONFIG] " +
+            "mode=A2DP_ONLY | " +
+            "micSource=$audioSource | " +
+            "scoEnabled=false | " +
+            "btConnected=$btConnected")
+
+        // TTS will route through STREAM_MUSIC which goes to A2DP automatically
+        // No need for SCO mode which causes volume issues
+        val musicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val musicMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        Log.d(TAG, "A2DP mode - MUSIC volume: $musicVol/$musicMax")
+
+        return true
     }
 
     /**

@@ -34,7 +34,7 @@ class VoskEngine @Inject constructor(
     private var currentListener: RecognitionListener? = null
 
     companion object {
-        private const val TAG = "VoskEngine"
+        private const val TAG = "LP.Vosk"
         private const val SAMPLE_RATE = 16000.0f
         private const val MODEL_PATH = "vosk-model-small-en-us"
     }
@@ -93,10 +93,10 @@ class VoskEngine @Inject constructor(
             recognizer?.close()
             recognizer = Recognizer(currentModel, SAMPLE_RATE, grammar)
 
-            Log.i(TAG, "Loaded vocabulary with ${vocabulary.size} words")
+            Log.i(TAG, "[VOCAB_LOADED] words=${vocabulary.size} | sampleRate=$SAMPLE_RATE")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load vocabulary", e)
+            Log.e(TAG, "[VOCAB_ERROR] error=\"${e.message}\"")
             Result.failure(e)
         }
     }
@@ -145,6 +145,8 @@ class VoskEngine @Inject constructor(
                     hypothesis?.let {
                         val text = parseResult(it)
                         if (text.isNotEmpty()) {
+                            val words = text.split(" ").filter { w -> w.isNotEmpty() }
+                            Log.d(TAG, "[VOSK_PARTIAL] heard=\"$text\" | words=${words.size}")
                             onPartialResult(text)
                         }
                     }
@@ -154,6 +156,8 @@ class VoskEngine @Inject constructor(
                     hypothesis?.let {
                         val text = parseResult(it)
                         if (text.isNotEmpty()) {
+                            val words = text.split(" ").filter { w -> w.isNotEmpty() }
+                            Log.d(TAG, "[VOSK_FINAL] heard=\"$text\" | words=${words.size}")
                             onFinalResult(text)
                         }
                     }
@@ -163,17 +167,22 @@ class VoskEngine @Inject constructor(
                     hypothesis?.let {
                         val text = parseResult(it)
                         if (text.isNotEmpty()) {
+                            val words = text.split(" ").filter { w -> w.isNotEmpty() }
+                            Log.d(TAG, "[VOSK_FINAL] heard=\"$text\" | words=${words.size}")
                             onFinalResult(text)
                         }
                     }
                 }
 
                 override fun onError(exception: Exception?) {
-                    exception?.let { onError(it) }
+                    exception?.let {
+                        Log.e(TAG, "[VOSK_ERROR] error=\"${it.message}\"")
+                        onError(it)
+                    }
                 }
 
                 override fun onTimeout() {
-                    // No action needed - recognition continues
+                    Log.v(TAG, "[VOSK_TIMEOUT]")
                 }
             }
 
@@ -181,7 +190,7 @@ class VoskEngine @Inject constructor(
                 startListening(currentListener)
             }
 
-            Log.i(TAG, "Started listening")
+            Log.i(TAG, "[LISTENING_START] sampleRate=$SAMPLE_RATE")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start listening", e)
             onError(e)
@@ -198,7 +207,7 @@ class VoskEngine @Inject constructor(
         }
         speechService = null
         currentListener = null
-        Log.i(TAG, "Stopped listening")
+        Log.i(TAG, "[LISTENING_STOP]")
     }
 
     /**

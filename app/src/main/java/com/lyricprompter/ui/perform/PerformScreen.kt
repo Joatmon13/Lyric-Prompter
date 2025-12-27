@@ -2,6 +2,10 @@ package com.lyricprompter.ui.perform
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.view.WindowManager
@@ -98,9 +102,24 @@ fun PerformScreen(
         mutableStateOf(checkBluetoothConnected(context))
     }
 
-    // Check volume level (0-100)
-    val volumePercent = remember {
-        mutableStateOf(getVolumePercent(context))
+    // Check volume level (0-100) - dynamically updated
+    var volumePercent by remember { mutableStateOf(getVolumePercent(context)) }
+
+    // Listen for volume changes
+    DisposableEffect(context) {
+        val volumeReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
+                    volumePercent = getVolumePercent(context)
+                }
+            }
+        }
+        val filter = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+        context.registerReceiver(volumeReceiver, filter)
+
+        onDispose {
+            context.unregisterReceiver(volumeReceiver)
+        }
     }
 
     // Permission state
@@ -157,7 +176,7 @@ fun PerformScreen(
                     PerformContent(
                         state = state,
                         isBluetoothConnected = isBluetoothConnected.value,
-                        volumePercent = volumePercent.value,
+                        volumePercent = volumePercent,
                         onStart = viewModel::start,
                         onStop = {
                             viewModel.stop()
@@ -278,119 +297,131 @@ private fun PerformContent(
     val performanceState = state.state
     val song = performanceState.song
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-    ) {
-        // Top bar with close button and song info
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Main content column
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)
         ) {
-            IconButton(onClick = onBackClick) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = stringResource(R.string.close),
-                    tint = PerformanceText
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = song.title,
-                    style = PerformanceTypography.status,
-                    color = PerformanceText
-                )
-                song.displayKey?.let { key ->
-                    Text(
-                        text = key,
-                        style = PerformanceTypography.songKey,
-                        color = PerformanceAccent
-                    )
-                }
-            }
-
-            // Status indicators (volume + bluetooth)
+            // Top bar with close button and song info
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                VolumeIndicator(volumePercent = volumePercent)
-                BluetoothIndicator(isConnected = isBluetoothConnected)
-            }
-        }
+                IconButton(onClick = onBackClick) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = stringResource(R.string.close),
+                        tint = PerformanceText
+                    )
+                }
 
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Main content area
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedContent(
-                targetState = performanceState.status,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "status"
-            ) { status ->
-                when (status) {
-                    is PerformanceStatus.Ready -> {
-                        ReadyContent(onStart = onStart)
-                    }
-                    is PerformanceStatus.CountIn -> {
-                        CountInContent(
-                            currentBar = status.currentBar,
-                            totalBars = status.totalBars,
-                            currentBeatInBar = status.currentBeatInBar,
-                            beatsPerBar = status.beatsPerBar
-                        )
-                    }
-                    is PerformanceStatus.Listening -> {
-                        ListeningContent(
-                            currentLineIndex = performanceState.currentLineIndex,
-                            totalLines = song.lineCount,
-                            currentLineText = song.lines.getOrNull(performanceState.currentLineIndex)?.text,
-                            currentLineWords = song.lines.getOrNull(performanceState.currentLineIndex)?.words ?: emptyList(),
-                            nextLineText = song.lines.getOrNull(performanceState.currentLineIndex + 1)?.text,
-                            recognizedWords = performanceState.recognizedWords,
-                            lineConfidence = performanceState.lineConfidence
-                        )
-                    }
-                    is PerformanceStatus.Paused -> {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = song.title,
+                        style = PerformanceTypography.status,
+                        color = PerformanceText
+                    )
+                    song.displayKey?.let { key ->
                         Text(
-                            text = "Paused",
-                            style = PerformanceTypography.status,
+                            text = key,
+                            style = PerformanceTypography.songKey,
                             color = PerformanceAccent
                         )
                     }
-                    is PerformanceStatus.Finished -> {
-                        FinishedContent(
-                            onRestart = onRestart,
-                            onClose = onStop
+                }
+
+                // Spacer to balance layout (close button on left, empty on right)
+                Spacer(modifier = Modifier.size(48.dp))
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Main content area
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedContent(
+                    targetState = performanceState.status,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "status"
+                ) { status ->
+                    when (status) {
+                        is PerformanceStatus.Ready -> {
+                            ReadyContent(onStart = onStart)
+                        }
+                        is PerformanceStatus.CountIn -> {
+                            CountInContent(
+                                currentBar = status.currentBar,
+                                totalBars = status.totalBars,
+                                currentBeatInBar = status.currentBeatInBar,
+                                beatsPerBar = status.beatsPerBar
+                            )
+                        }
+                        is PerformanceStatus.Listening -> {
+                            ListeningContent(
+                                currentLineIndex = performanceState.currentLineIndex,
+                                totalLines = song.lineCount,
+                                currentLineText = song.lines.getOrNull(performanceState.currentLineIndex)?.text,
+                                currentLineWords = song.lines.getOrNull(performanceState.currentLineIndex)?.words ?: emptyList(),
+                                nextLineText = song.lines.getOrNull(performanceState.currentLineIndex + 1)?.text,
+                                recognizedWords = performanceState.recognizedWords,
+                                lineConfidence = performanceState.lineConfidence
+                            )
+                        }
+                        is PerformanceStatus.Paused -> {
+                            Text(
+                                text = "Paused",
+                                style = PerformanceTypography.status,
+                                color = PerformanceAccent
+                            )
+                        }
+                        is PerformanceStatus.Finished -> {
+                            FinishedContent(
+                                onRestart = onRestart,
+                                onClose = onStop
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Bottom area with Bluetooth indicator and controls
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Bluetooth indicator at bottom (centered)
+                BluetoothIndicator(isConnected = isBluetoothConnected)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Bottom controls (stop button during listening)
+                if (performanceState.status is PerformanceStatus.Listening) {
+                    Button(
+                        onClick = onStop,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PerformanceAccent
                         )
+                    ) {
+                        Text(stringResource(R.string.perform_stop))
                     }
                 }
             }
         }
 
-        // Bottom controls
-        if (performanceState.status is PerformanceStatus.Listening) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Button(
-                    onClick = onStop,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = PerformanceAccent
-                    )
-                ) {
-                    Text(stringResource(R.string.perform_stop))
-                }
-            }
+        // Volume indicator on right edge (positioned near physical volume buttons)
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 8.dp)
+        ) {
+            VolumeIndicator(volumePercent = volumePercent)
         }
     }
 }

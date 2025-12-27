@@ -17,14 +17,14 @@ class ProcessLyricsUseCase @Inject constructor() {
      * @param rawLyrics The raw lyrics text
      * @param title The song title
      * @param artist The artist name
-     * @param promptWordCount Number of words to include in prompts (default 4)
+     * @param promptWordCount Number of words to include in prompts (0 = full line, default)
      * @return A new Song with processed lyrics
      */
     fun process(
         rawLyrics: String,
         title: String,
         artist: String,
-        promptWordCount: Int = 4
+        promptWordCount: Int = 0
     ): Song {
         // 1. Clean up text
         val cleaned = cleanLyrics(rawLyrics)
@@ -141,15 +141,26 @@ class ProcessLyricsUseCase @Inject constructor() {
 
     /**
      * Generate prompt text from the next line.
+     * If wordCount is 0 or negative, use the full line.
      */
     private fun generatePrompt(nextLine: String?, wordCount: Int): String {
         if (nextLine.isNullOrBlank()) return ""
+
+        // If wordCount is 0 or less, use the full line
+        if (wordCount <= 0) {
+            return nextLine.trim()
+        }
 
         // Split preserving original capitalization for TTS
         val words = nextLine
             .trim()
             .split(Regex("\\s+"))
             .filter { it.isNotEmpty() }
+
+        // If wordCount is >= line length, just return full line
+        if (wordCount >= words.size) {
+            return nextLine.trim()
+        }
 
         return words.take(wordCount).joinToString(" ")
     }

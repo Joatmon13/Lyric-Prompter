@@ -3,6 +3,7 @@ package com.lyricprompter.di
 import android.content.Context
 import androidx.room.Room
 import com.lyricprompter.data.local.db.AppDatabase
+import com.lyricprompter.data.local.db.SessionLogDao
 import com.lyricprompter.data.local.db.SongDao
 import com.lyricprompter.data.local.db.SetlistDao
 import dagger.Module
@@ -24,7 +25,10 @@ object DatabaseModule {
             AppDatabase::class.java,
             "lyricprompter.db"
         )
-            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addMigrations(
+                AppDatabase.MIGRATION_1_2,
+                AppDatabase.MIGRATION_2_3
+            )
             .build()
     }
 
@@ -35,4 +39,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideSetlistDao(database: AppDatabase): SetlistDao = database.setlistDao()
+
+    @Provides
+    @Singleton
+    fun provideSessionLogDao(database: AppDatabase): SessionLogDao = database.sessionLogDao()
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
@@ -44,12 +45,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.lyricprompter.BuildConfig
 import com.lyricprompter.R
+import com.lyricprompter.audio.routing.AudioRouter
+import com.lyricprompter.diagnostics.DiagnosticLogger
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    audioRouter: AudioRouter,
+    diagnosticLogger: DiagnosticLogger,
     modifier: Modifier = Modifier,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onSessionLogsClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -60,6 +66,9 @@ fun SettingsScreen(
     var defaultCountInEnabled by remember { mutableStateOf(true) }
     var keepScreenOn by remember { mutableStateOf(true) }
     var ttsSpeed by remember { mutableFloatStateOf(1.0f) }
+
+    // Phone mic setting - stored via AudioRouter
+    var usePhoneMic by remember { mutableStateOf(audioRouter.usePhoneMic) }
 
     // Check DND permission - refresh when returning to screen
     var isDndGranted by remember { mutableStateOf(checkDndPermission(context)) }
@@ -123,6 +132,18 @@ fun SettingsScreen(
 
             // Audio Section
             SettingsSection(title = stringResource(R.string.settings_audio)) {
+                SwitchSettingWithDescription(
+                    label = stringResource(R.string.settings_use_phone_mic),
+                    description = stringResource(R.string.settings_use_phone_mic_description),
+                    checked = usePhoneMic,
+                    onCheckedChange = {
+                        usePhoneMic = it
+                        audioRouter.usePhoneMic = it
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 SliderSetting(
                     label = stringResource(R.string.settings_tts_speed),
                     value = ttsSpeed,
@@ -159,6 +180,47 @@ fun SettingsScreen(
                         context.startActivity(intent)
                     }
                 )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Developer Section
+            SettingsSection(title = "Developer Tools") {
+                // Session logging toggle
+                var sessionLoggingEnabled by remember { mutableStateOf(diagnosticLogger.isEnabled) }
+                SwitchSettingWithDescription(
+                    label = "Enable Session Logging",
+                    description = "Capture detailed logs during performance (may affect latency)",
+                    checked = sessionLoggingEnabled,
+                    onCheckedChange = {
+                        sessionLoggingEnabled = it
+                        diagnosticLogger.isEnabled = it
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onSessionLogsClick)
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Session Logs")
+                        Text(
+                            text = "View diagnostic logs from performance sessions",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -246,6 +308,31 @@ private fun SwitchSetting(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(text = label, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun SwitchSettingWithDescription(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

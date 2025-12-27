@@ -12,12 +12,21 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
+import com.lyricprompter.audio.routing.AudioRouter
+import com.lyricprompter.diagnostics.DiagnosticLogger
 import com.lyricprompter.ui.navigation.LyricPrompterNavHost
 import com.lyricprompter.ui.theme.LyricPrompterTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var audioRouter: AudioRouter
+
+    @Inject
+    lateinit var diagnosticLogger: DiagnosticLogger
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -36,7 +45,10 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    LyricPrompterNavHost()
+                    LyricPrompterNavHost(
+                        audioRouter = audioRouter,
+                        diagnosticLogger = diagnosticLogger
+                    )
                 }
             }
         }

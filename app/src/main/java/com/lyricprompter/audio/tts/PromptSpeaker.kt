@@ -1,11 +1,10 @@
 package com.lyricprompter.audio.tts
 
 import android.content.Context
-import android.media.AudioManager
-import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import com.lyricprompter.audio.routing.AudioRouter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,7 +20,8 @@ import kotlin.coroutines.resume
  */
 @Singleton
 class PromptSpeaker @Inject constructor(
-    private val context: Context
+    private val context: Context,
+    private val audioRouter: AudioRouter
 ) {
     private var tts: TextToSpeech? = null
 
@@ -35,7 +35,7 @@ class PromptSpeaker @Inject constructor(
     private var pitch = 1.0f
 
     companion object {
-        private const val TAG = "PromptSpeaker"
+        private const val TAG = "LP.Prompt"
     }
 
     /**
@@ -120,7 +120,7 @@ class PromptSpeaker @Inject constructor(
 
         // Set up completion listener if provided
         if (onComplete != null) {
-            val currentListener = tts?.setOnUtteranceProgressListener(
+            tts?.setOnUtteranceProgressListener(
                 object : UtteranceProgressListener() {
                     override fun onStart(id: String?) {
                         _isSpeaking.value = true
@@ -148,16 +148,24 @@ class PromptSpeaker @Inject constructor(
         tts?.setSpeechRate(speechRate)
         tts?.setPitch(pitch)
 
-        // Use Bundle params to route audio through voice call stream
-        // This ensures TTS goes through Bluetooth SCO when active
-        val params = Bundle().apply {
-            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_VOICE_CALL)
-        }
+        // Let TTS use its default audio routing - don't set AudioAttributes
+        // This allows the system to route TTS to the default audio output device
+        // (which should be Bluetooth when connected)
 
         // Speak with QUEUE_FLUSH to interrupt any current speech
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        // Pass null for params to use default routing
+        val speakResult = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        val resultStr = when (speakResult) {
+            TextToSpeech.SUCCESS -> "SUCCESS"
+            TextToSpeech.ERROR -> "ERROR"
+            else -> "UNKNOWN($speakResult)"
+        }
 
-        Log.d(TAG, "Speaking: $text (stream: VOICE_CALL)")
+        Log.i(TAG, "[PROMPT_SPOKEN] " +
+            "text=\"$text\" | " +
+            "result=$resultStr | " +
+            "ttsReady=${_isReady.value} | " +
+            "rate=$speechRate")
     }
 
     /**
