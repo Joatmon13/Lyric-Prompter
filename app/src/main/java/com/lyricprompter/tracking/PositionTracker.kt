@@ -18,15 +18,24 @@ class PositionTracker @Inject constructor(
     private var lastPromptedLine = -1
     private val recognizedBuffer = mutableListOf<String>()
 
+    // Callback to update Vosk grammar when we need to focus on specific lines
+    var onGrammarUpdateNeeded: ((Set<String>) -> Unit)? = null
+
     companion object {
         private const val TAG = "PositionTracker"
 
-        // How many lines ahead/behind to search
-        private const val SEARCH_WINDOW_BEFORE = 2
-        private const val SEARCH_WINDOW_AFTER = 5
+        // How many lines ahead/behind to search - very tight to prevent jumping
+        private const val SEARCH_WINDOW_BEFORE = 0  // Never go back
+        private const val SEARCH_WINDOW_AFTER = 1   // Only look at next line
 
         // Max words to keep in buffer
-        private const val MAX_BUFFER_SIZE = 30
+        private const val MAX_BUFFER_SIZE = 15
+
+        // Words to keep after prompting (reduced to prevent stale matches)
+        private const val KEEP_AFTER_PROMPT = 3
+
+        // How many lines to include in focused grammar (current + next N)
+        private const val GRAMMAR_LINES_AHEAD = 3
     }
 
     /**
@@ -45,6 +54,31 @@ class PositionTracker @Inject constructor(
         currentLineIndex = 0
         lastPromptedLine = -1
         recognizedBuffer.clear()
+        // NOTE: We use full song vocabulary since Vosk can't update grammar during recognition
+    }
+
+    /**
+     * Get words for the current and next few lines to focus Vosk grammar.
+     */
+    private fun getWordsForCurrentPosition(): Set<String> {
+        val startLine = maxOf(0, currentLineIndex)
+        val endLine = minOf(lineWordsList.size - 1, currentLineIndex + GRAMMAR_LINES_AHEAD)
+
+        val words = mutableSetOf<String>()
+        for (i in startLine..endLine) {
+            words.addAll(lineWordsList[i])
+        }
+        Log.d(TAG, "Focused grammar: lines $startLine-$endLine, ${words.size} unique words")
+        return words
+    }
+
+    /**
+     * Update the Vosk grammar to focus on current position.
+     */
+    private fun updateFocusedGrammar() {
+        if (lineWordsList.isEmpty()) return
+        val words = getWordsForCurrentPosition()
+        onGrammarUpdateNeeded?.invoke(words)
     }
 
     /**
@@ -67,9 +101,10 @@ class PositionTracker @Inject constructor(
             recognizedBuffer.removeAt(0)
         }
 
-        // Define search window around current position
-        val searchWindow = (currentLineIndex - SEARCH_WINDOW_BEFORE)..
-            (currentLineIndex + SEARCH_WINDOW_AFTER)
+        // Define search window: start from line after lastPrompted (never go back)
+        // Only look at lines we haven't prompted yet
+        val windowStart = maxOf(currentLineIndex - SEARCH_WINDOW_BEFORE, lastPromptedLine + 1)
+        val searchWindow = windowStart..(currentLineIndex + SEARCH_WINDOW_AFTER)
 
         // Find best matching line
         val match = fuzzyMatcher.findBestMatch(
@@ -93,46 +128,60 @@ class PositionTracker @Inject constructor(
             currentLineIndex = matchedLineIndex
         }
 
-        // Check if we should trigger a prompt
+        // Check if we should trigger a prompt based on percentage threshold
+        val lineWordCount = lineWordsList.getOrNull(matchedLineIndex)?.size ?: 0
         if (promptTrigger.shouldPrompt(
                 lineIndex = matchedLineIndex,
                 matchScore = matchScore,
                 triggerPercent = currentSong.triggerPercent,
-                lastPromptedLine = lastPromptedLine
+                lastPromptedLine = lastPromptedLine,
+                lineWordCount = lineWordCount
             )
         ) {
-            lastPromptedLine = matchedLineIndex
-
-            // IMPORTANT: Clear buffer and advance to next line after prompting
-            // This prevents re-matching the same line with old words
-            recognizedBuffer.clear()
-            currentLineIndex = matchedLineIndex + 1
-            Log.d(TAG, "After prompt: cleared buffer, advanced to line $currentLineIndex")
-
-            // Get the prompt text (which is for the NEXT line)
-            val promptText = currentSong.lines.getOrNull(matchedLineIndex)?.promptText
-
-            return if (promptText.isNullOrEmpty()) {
-                // No more lines to prompt - song is finishing
-                if (matchedLineIndex >= lineWordsList.lastIndex) {
-                    Log.i(TAG, "Song finished at line $matchedLineIndex")
-                    PromptEvent.SongFinished
-                } else {
-                    Log.i(TAG, "Line $matchedLineIndex completed (no prompt text)")
-                    PromptEvent.LineCompleted(matchedLineIndex)
-                }
-            } else {
-                Log.i(TAG, "PROMPT line $matchedLineIndex: '$promptText'")
-                PromptEvent.SpeakPrompt(
-                    lineIndex = matchedLineIndex,
-                    promptText = promptText
-                )
-            }
+            return triggerPrompt(matchedLineIndex, currentSong)
         } else {
             Log.v(TAG, "Not prompting: score ${(matchScore * 100).toInt()}% < ${currentSong.triggerPercent}% OR already prompted (last=$lastPromptedLine)")
         }
 
         return null
+    }
+
+    /**
+     * Helper to trigger a prompt and update state.
+     */
+    private fun triggerPrompt(lineIndex: Int, currentSong: Song): PromptEvent? {
+        lastPromptedLine = lineIndex
+
+        // Keep last few words for context, don't clear everything
+        val wordsToKeep = recognizedBuffer.takeLast(KEEP_AFTER_PROMPT)
+        recognizedBuffer.clear()
+        recognizedBuffer.addAll(wordsToKeep)
+
+        // Advance position to next line
+        currentLineIndex = lineIndex + 1
+        Log.d(TAG, "After prompt: kept ${wordsToKeep.size} words, advanced to line $currentLineIndex")
+
+        // NOTE: We can't update Vosk grammar while recognition is active (causes native crash)
+        // Grammar is set at song start and remains for the whole song
+
+        // Get the prompt text (which is for the NEXT line)
+        val promptText = currentSong.lines.getOrNull(lineIndex)?.promptText
+
+        return if (promptText.isNullOrEmpty()) {
+            if (lineIndex >= lineWordsList.lastIndex) {
+                Log.i(TAG, "Song finished at line $lineIndex")
+                PromptEvent.SongFinished
+            } else {
+                Log.i(TAG, "Line $lineIndex completed (no prompt text)")
+                PromptEvent.LineCompleted(lineIndex)
+            }
+        } else {
+            Log.i(TAG, "PROMPT line $lineIndex: '$promptText'")
+            PromptEvent.SpeakPrompt(
+                lineIndex = lineIndex,
+                promptText = promptText
+            )
+        }
     }
 
     /**

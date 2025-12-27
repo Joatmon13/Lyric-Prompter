@@ -45,7 +45,7 @@ class CountInPlayer @Inject constructor(
         // Start Bluetooth SCO first so TTS goes to headphones
         Log.i(TAG, "Starting Bluetooth for audio intro")
         audioRouter.startBluetoothForPrompts()
-        delay(300) // Give SCO time to connect
+        delay(600) // Give SCO time to fully connect (prevents clipping first word)
 
         if (isStopped) return
 

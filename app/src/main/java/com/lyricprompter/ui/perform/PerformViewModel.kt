@@ -204,7 +204,11 @@ class PerformViewModel @Inject constructor(
         // Handle prompt events
         when (event) {
             is PromptEvent.SpeakPrompt -> {
-                promptSpeaker.speak(event.promptText)
+                // Brief pause before speaking to let user finish their phrase
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(150)
+                    promptSpeaker.speak(event.promptText)
+                }
                 _uiState.update { state ->
                     if (state is PerformUiState.Ready) {
                         state.copy(

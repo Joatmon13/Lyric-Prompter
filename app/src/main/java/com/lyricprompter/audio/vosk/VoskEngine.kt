@@ -102,6 +102,24 @@ class VoskEngine @Inject constructor(
     }
 
     /**
+     * Update the grammar to focus on specific words (e.g., for current/next lines).
+     * This dramatically improves recognition accuracy by narrowing what Vosk listens for.
+     *
+     * @param words Words to listen for (typically from current and next few lines)
+     */
+    fun updateGrammar(words: Set<String>) {
+        val currentRecognizer = recognizer ?: return
+
+        try {
+            val grammar = buildGrammar(words)
+            currentRecognizer.setGrammar(grammar)
+            Log.d(TAG, "Updated grammar to ${words.size} words: ${words.take(10)}...")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update grammar", e)
+        }
+    }
+
+    /**
      * Start streaming speech recognition.
      *
      * @param onPartialResult Called with partial recognition results
