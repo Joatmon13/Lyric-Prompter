@@ -22,7 +22,7 @@ data class SongEntity(
 
     // Count-in settings
     val countInEnabled: Boolean,
-    val countInBeats: Int,
+    val countInBars: Int,
 
     // Prompt settings
     val triggerPercent: Int,

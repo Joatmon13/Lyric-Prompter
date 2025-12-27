@@ -67,7 +67,7 @@ class SongViewModel @Inject constructor(
         performKey: String? = null,
         timeSignature: String? = null,
         countInEnabled: Boolean? = null,
-        countInBeats: Int? = null,
+        countInBars: Int? = null,
         triggerPercent: Int? = null,
         promptWordCount: Int? = null
     ) {
@@ -81,7 +81,7 @@ class SongViewModel @Inject constructor(
             performKey = performKey ?: currentSong.performKey,
             timeSignature = timeSignature ?: currentSong.timeSignature,
             countInEnabled = countInEnabled ?: currentSong.countInEnabled,
-            countInBeats = countInBeats ?: currentSong.countInBeats,
+            countInBars = countInBars ?: currentSong.countInBars,
             triggerPercent = triggerPercent ?: currentSong.triggerPercent,
             promptWordCount = promptWordCount ?: currentSong.promptWordCount,
             updatedAt = System.currentTimeMillis()
@@ -123,12 +123,10 @@ class SongViewModel @Inject constructor(
                 is BpmResult.Success -> {
                     Log.i(TAG, "Refreshed BPM for '${currentSong.title}': ${result.bpm}, time sig: ${result.timeSignature}, key: ${result.key}")
                     val timeSig = result.timeSignature ?: currentSong.timeSignature
-                    val countInBeats = parseCountInBeatsFromTimeSignature(timeSig)
                     val updatedSong = currentSong.copy(
                         bpm = result.bpm,
                         originalKey = result.key ?: currentSong.originalKey,
                         timeSignature = timeSig,
-                        countInBeats = countInBeats,
                         updatedAt = System.currentTimeMillis()
                     )
                     _song.value = updatedSong
@@ -153,17 +151,6 @@ class SongViewModel @Inject constructor(
 
     fun clearBpmRefreshState() {
         _bpmRefreshState.value = BpmRefreshState.Idle
-    }
-
-    private fun parseCountInBeatsFromTimeSignature(timeSignature: String?): Int {
-        if (timeSignature.isNullOrBlank()) return 4
-        return try {
-            val parts = timeSignature.split("/")
-            val numerator = parts.getOrNull(0)?.toIntOrNull() ?: 4
-            numerator.coerceIn(1, 8)
-        } catch (e: Exception) {
-            4
-        }
     }
 }
 

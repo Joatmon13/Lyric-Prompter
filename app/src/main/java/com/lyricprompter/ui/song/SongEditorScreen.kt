@@ -66,7 +66,7 @@ fun SongEditorScreen(
     var performKey by remember { mutableStateOf<String?>(null) }
     var timeSignature by remember { mutableStateOf("4/4") }
     var countInEnabled by remember { mutableStateOf(true) }
-    var countInBeats by remember { mutableFloatStateOf(4f) }
+    var countInBars by remember { mutableFloatStateOf(3f) }
     var triggerPercent by remember { mutableFloatStateOf(70f) }
     var promptWordCount by remember { mutableFloatStateOf(4f) }
 
@@ -88,7 +88,7 @@ fun SongEditorScreen(
             performKey = s.performKey
             timeSignature = s.timeSignature ?: "4/4"
             countInEnabled = s.countInEnabled
-            countInBeats = s.countInBeats.toFloat()
+            countInBars = s.countInBars.toFloat()
             triggerPercent = s.triggerPercent.toFloat()
             promptWordCount = s.promptWordCount.toFloat()
         }
@@ -116,7 +116,7 @@ fun SongEditorScreen(
                                     performKey = performKey,
                                     timeSignature = timeSignature,
                                     countInEnabled = countInEnabled,
-                                    countInBeats = countInBeats.toInt(),
+                                    countInBars = countInBars.toInt(),
                                     triggerPercent = triggerPercent.toInt(),
                                     promptWordCount = promptWordCount.toInt()
                                 )
@@ -132,7 +132,7 @@ fun SongEditorScreen(
                                     performKey = performKey,
                                     timeSignature = timeSignature,
                                     countInEnabled = countInEnabled,
-                                    countInBeats = countInBeats.toInt(),
+                                    countInBars = countInBars.toInt(),
                                     triggerPercent = triggerPercent.toInt(),
                                     promptWordCount = promptWordCount.toInt()
                                 )
@@ -248,11 +248,12 @@ fun SongEditorScreen(
 
             if (countInEnabled) {
                 SliderSetting(
-                    label = stringResource(R.string.editor_count_in_beats),
-                    value = countInBeats,
-                    onValueChange = { countInBeats = it },
-                    valueRange = 1f..8f,
-                    steps = 6
+                    label = stringResource(R.string.editor_count_in_bars),
+                    value = countInBars,
+                    onValueChange = { countInBars = it },
+                    valueRange = 1f..4f,
+                    steps = 2,
+                    valueDisplay = "${countInBars.toInt()} bars"
                 )
             }
 

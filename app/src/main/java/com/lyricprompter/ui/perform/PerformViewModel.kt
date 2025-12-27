@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lyricprompter.audio.routing.AudioRouter
 import com.lyricprompter.audio.tts.CountInPlayer
 import com.lyricprompter.audio.tts.PromptSpeaker
 import com.lyricprompter.audio.vosk.VoskEngine
@@ -28,7 +29,8 @@ class PerformViewModel @Inject constructor(
     private val voskEngine: VoskEngine,
     private val positionTracker: PositionTracker,
     private val promptSpeaker: PromptSpeaker,
-    private val countInPlayer: CountInPlayer
+    private val countInPlayer: CountInPlayer,
+    private val audioRouter: AudioRouter
 ) : ViewModel() {
 
     companion object {
@@ -79,14 +81,28 @@ class PerformViewModel @Inject constructor(
         val currentState = (_uiState.value as? PerformUiState.Ready)?.state ?: return
         val song = currentState.song
 
+        // Enter performance mode to prevent interruptions
+        val focusGranted = audioRouter.enterPerformanceMode(enableDndMode = true)
+        Log.i(TAG, "Performance mode entered, audio focus granted: $focusGranted")
+
         viewModelScope.launch {
             // Count-in only if enabled AND BPM is set (can't do count-in without knowing the tempo)
             if (song.countInEnabled && song.bpm != null) {
+                val beatsPerBar = song.beatsPerBar
+                val totalBars = song.countInBars
+                val totalBeats = song.countInTotalBeats
+
+                // Initial state: bar 1, beat 1
                 _uiState.update { state ->
                     if (state is PerformUiState.Ready) {
                         state.copy(
                             state = state.state.copy(
-                                status = PerformanceStatus.CountIn(1, song.countInBeats)
+                                status = PerformanceStatus.CountIn(
+                                    currentBar = 1,
+                                    totalBars = totalBars,
+                                    currentBeatInBar = 1,
+                                    beatsPerBar = beatsPerBar
+                                )
                             )
                         )
                     } else state
@@ -94,21 +110,36 @@ class PerformViewModel @Inject constructor(
 
                 countInPlayer.playCountIn(
                     bpm = song.bpm,
-                    beats = song.countInBeats,
+                    beats = totalBeats,
                     onBeat = { beat ->
+                        // Calculate which bar and beat within bar (1-indexed)
+                        val currentBar = ((beat - 1) / beatsPerBar) + 1
+                        val currentBeatInBar = ((beat - 1) % beatsPerBar) + 1
+
                         _uiState.update { state ->
                             if (state is PerformUiState.Ready) {
                                 state.copy(
                                     state = state.state.copy(
-                                        status = PerformanceStatus.CountIn(beat, song.countInBeats)
+                                        status = PerformanceStatus.CountIn(
+                                            currentBar = currentBar,
+                                            totalBars = totalBars,
+                                            currentBeatInBar = currentBeatInBar,
+                                            beatsPerBar = beatsPerBar
+                                        )
                                     )
                                 )
                             } else state
                         }
                     },
-                    onComplete = { startListening() }
+                    onComplete = {
+                        // Start Bluetooth SCO after count-in (so metronome isn't muted)
+                        audioRouter.startBluetoothForPrompts()
+                        startListening()
+                    }
                 )
             } else {
+                // No count-in, start Bluetooth immediately
+                audioRouter.startBluetoothForPrompts()
                 startListening()
             }
         }
@@ -158,13 +189,14 @@ class PerformViewModel @Inject constructor(
         val event = positionTracker.onWordsRecognized(words)
         val trackingState = positionTracker.getState()
 
-        // Update UI state
+        // Update UI state (keep only last 15 words - UI displays 8, matching uses its own buffer)
         _uiState.update { state ->
             if (state is PerformUiState.Ready) {
+                val updatedWords = (state.state.recognizedWords + words).takeLast(15)
                 state.copy(
                     state = state.state.copy(
                         currentLineIndex = trackingState.currentLineIndex,
-                        recognizedWords = state.state.recognizedWords + words
+                        recognizedWords = updatedWords
                     )
                 )
             } else state
@@ -195,6 +227,8 @@ class PerformViewModel @Inject constructor(
         voskEngine.stopListening()
         countInPlayer.stop()
         promptSpeaker.stop()
+        audioRouter.exitPerformanceMode()
+        Log.i(TAG, "Performance mode exited")
 
         _uiState.update { state ->
             if (state is PerformUiState.Ready) {
@@ -223,6 +257,7 @@ class PerformViewModel @Inject constructor(
         voskEngine.stopListening()
         countInPlayer.stop()
         promptSpeaker.stop()
+        audioRouter.exitPerformanceMode()
     }
 }
 

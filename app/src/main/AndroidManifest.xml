@@ -15,9 +15,15 @@
     <!-- Keep screen on during performance -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Audio routing to Bluetooth -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- Foreground service for performance mode -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- Do Not Disturb access for silencing notifications during performance -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <application
         android:name=".LyricPrompterApp"

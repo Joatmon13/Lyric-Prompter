@@ -1,5 +1,6 @@
 package com.lyricprompter.tracking
 
+import android.util.Log
 import com.lyricprompter.domain.model.Song
 import javax.inject.Inject
 
@@ -18,6 +19,8 @@ class PositionTracker @Inject constructor(
     private val recognizedBuffer = mutableListOf<String>()
 
     companion object {
+        private const val TAG = "PositionTracker"
+
         // How many lines ahead/behind to search
         private const val SEARCH_WINDOW_BEFORE = 2
         private const val SEARCH_WINDOW_AFTER = 5
@@ -75,12 +78,18 @@ class PositionTracker @Inject constructor(
             searchWindow = searchWindow
         )
 
-        if (match == null) return null
+        if (match == null) {
+            Log.v(TAG, "No match found in window $searchWindow, buffer: ${recognizedBuffer.takeLast(5)}")
+            return null
+        }
 
         val (matchedLineIndex, matchScore) = match
+        val lineText = currentSong.lines.getOrNull(matchedLineIndex)?.text?.take(30) ?: ""
+        Log.d(TAG, "Match: line $matchedLineIndex (${(matchScore * 100).toInt()}%) '$lineText...' trigger=${currentSong.triggerPercent}% lastPrompted=$lastPromptedLine")
 
         // Update current position if we've moved forward
         if (matchedLineIndex > currentLineIndex) {
+            Log.d(TAG, "Advanced from line $currentLineIndex to $matchedLineIndex")
             currentLineIndex = matchedLineIndex
         }
 
@@ -100,16 +109,21 @@ class PositionTracker @Inject constructor(
             return if (promptText.isNullOrEmpty()) {
                 // No more lines to prompt - song is finishing
                 if (matchedLineIndex >= lineWordsList.lastIndex) {
+                    Log.i(TAG, "Song finished at line $matchedLineIndex")
                     PromptEvent.SongFinished
                 } else {
+                    Log.i(TAG, "Line $matchedLineIndex completed (no prompt text)")
                     PromptEvent.LineCompleted(matchedLineIndex)
                 }
             } else {
+                Log.i(TAG, "PROMPT line $matchedLineIndex: '$promptText'")
                 PromptEvent.SpeakPrompt(
                     lineIndex = matchedLineIndex,
                     promptText = promptText
                 )
             }
+        } else {
+            Log.v(TAG, "Not prompting: score ${(matchScore * 100).toInt()}% < ${currentSong.triggerPercent}% OR already prompted (last=$lastPromptedLine)")
         }
 
         return null

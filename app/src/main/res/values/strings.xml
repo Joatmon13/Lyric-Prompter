@@ -34,7 +34,7 @@
     <string name="editor_perform_key">Perform Key</string>
     <string name="editor_time_signature">Time Signature</string>
     <string name="editor_count_in">Count-in</string>
-    <string name="editor_count_in_beats">Count-in Beats</string>
+    <string name="editor_count_in_bars">Count-in Bars</string>
     <string name="editor_trigger_percent">Trigger %</string>
     <string name="editor_prompt_words">Prompt Words</string>
     <string name="editor_save">Save</string>
@@ -104,4 +104,11 @@
     <string name="permission_microphone_message">Lyric Prompter needs microphone access to track your singing and prompt the next line.</string>
     <string name="permission_bluetooth_title">Bluetooth Permission</string>
     <string name="permission_bluetooth_message">Allow Bluetooth access to send prompts to your earpiece.</string>
+
+    <!-- Settings - Permissions -->
+    <string name="settings_permissions">Permissions</string>
+    <string name="settings_dnd_access">Do Not Disturb Access</string>
+    <string name="settings_dnd_description">Silence notifications during performance</string>
+    <string name="settings_dnd_granted">Granted</string>
+    <string name="settings_dnd_not_granted">Not granted - tap to open settings</string>
 </resources>

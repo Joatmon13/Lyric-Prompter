@@ -4,7 +4,6 @@ import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
-import com.lyricprompter.audio.routing.AudioRouter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,8 +19,7 @@ import kotlin.coroutines.resume
  */
 @Singleton
 class PromptSpeaker @Inject constructor(
-    private val context: Context,
-    private val audioRouter: AudioRouter
+    private val context: Context
 ) {
     private var tts: TextToSpeech? = null
 
@@ -115,6 +113,9 @@ class PromptSpeaker @Inject constructor(
             onComplete?.invoke()
             return
         }
+
+        // Note: Bluetooth SCO is pre-connected in enterPerformanceMode()
+        // No need to start it here as it may cause audio routing issues
 
         val utteranceId = UUID.randomUUID().toString()
 

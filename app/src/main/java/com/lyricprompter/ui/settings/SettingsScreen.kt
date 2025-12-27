@@ -1,5 +1,10 @@
 package com.lyricprompter.ui.settings
 
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +16,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -29,8 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.lyricprompter.BuildConfig
 import com.lyricprompter.R
 
@@ -40,12 +51,27 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onBackClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     // Settings state - would normally be stored in DataStore
     var defaultTriggerPercent by remember { mutableFloatStateOf(70f) }
     var defaultPromptWords by remember { mutableFloatStateOf(4f) }
     var defaultCountInEnabled by remember { mutableStateOf(true) }
     var keepScreenOn by remember { mutableStateOf(true) }
     var ttsSpeed by remember { mutableFloatStateOf(1.0f) }
+
+    // Check DND permission - refresh when returning to screen
+    var isDndGranted by remember { mutableStateOf(checkDndPermission(context)) }
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isDndGranted = checkDndPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -115,6 +141,23 @@ fun SettingsScreen(
                     label = stringResource(R.string.settings_keep_screen_on),
                     checked = keepScreenOn,
                     onCheckedChange = { keepScreenOn = it }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Permissions Section
+            SettingsSection(title = stringResource(R.string.settings_permissions)) {
+                PermissionSetting(
+                    label = stringResource(R.string.settings_dnd_access),
+                    description = stringResource(R.string.settings_dnd_description),
+                    isGranted = isDndGranted,
+                    grantedText = stringResource(R.string.settings_dnd_granted),
+                    notGrantedText = stringResource(R.string.settings_dnd_not_granted),
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                        context.startActivity(intent)
+                    }
                 )
             }
 
@@ -205,4 +248,46 @@ private fun SwitchSetting(
         Text(text = label, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
+}
+
+@Composable
+private fun PermissionSetting(
+    label: String,
+    description: String,
+    isGranted: Boolean,
+    grantedText: String,
+    notGrantedText: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = label)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = if (isGranted) grantedText else notGrantedText,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            )
+        }
+        Icon(
+            imageVector = if (isGranted) Icons.Default.Check else Icons.Default.Warning,
+            contentDescription = null,
+            tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+        )
+    }
+}
+
+private fun checkDndPermission(context: Context): Boolean {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    return notificationManager.isNotificationPolicyAccessGranted
 }

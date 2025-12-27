@@ -16,7 +16,7 @@ data class Song(
 
     // Count-in settings
     val countInEnabled: Boolean = true,
-    val countInBeats: Int = 4,
+    val countInBars: Int = 3,
 
     // Prompt settings
     val triggerPercent: Int = 70,      // 40-90
@@ -82,8 +82,34 @@ data class Song(
         val PROMPT_WORD_COUNT_RANGE = 2..6
 
         /**
-         * Count-in beats range.
+         * Count-in bars range.
          */
-        val COUNT_IN_BEATS_RANGE = 1..8
+        val COUNT_IN_BARS_RANGE = 1..4
+
+        /**
+         * Get beats per bar from time signature string.
+         */
+        fun beatsPerBar(timeSignature: String?): Int {
+            return when (timeSignature) {
+                "4/4" -> 4
+                "3/4" -> 3
+                "2/4" -> 2
+                "6/8" -> 6  // Compound time - 6 eighth notes
+                "12/8" -> 4 // Compound time - felt as 4 beats
+                else -> 4   // Default to 4/4
+            }
+        }
     }
+
+    /**
+     * Returns beats per bar for this song's time signature.
+     */
+    val beatsPerBar: Int
+        get() = Companion.beatsPerBar(timeSignature)
+
+    /**
+     * Returns total count-in beats (bars × beats per bar).
+     */
+    val countInTotalBeats: Int
+        get() = countInBars * beatsPerBar
 }

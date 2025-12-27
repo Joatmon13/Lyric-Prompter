@@ -30,7 +30,12 @@ data class PerformanceState(
  */
 sealed interface PerformanceStatus {
     data object Ready : PerformanceStatus
-    data class CountIn(val currentBeat: Int, val totalBeats: Int) : PerformanceStatus
+    data class CountIn(
+        val currentBar: Int,
+        val totalBars: Int,
+        val currentBeatInBar: Int,
+        val beatsPerBar: Int
+    ) : PerformanceStatus
     data object Listening : PerformanceStatus
     data object Paused : PerformanceStatus
     data object Finished : PerformanceStatus

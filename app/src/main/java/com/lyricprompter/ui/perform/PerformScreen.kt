@@ -304,8 +304,10 @@ private fun PerformContent(
                     }
                     is PerformanceStatus.CountIn -> {
                         CountInContent(
-                            currentBeat = status.currentBeat,
-                            totalBeats = status.totalBeats
+                            currentBar = status.currentBar,
+                            totalBars = status.totalBars,
+                            currentBeatInBar = status.currentBeatInBar,
+                            beatsPerBar = status.beatsPerBar
                         )
                     }
                     is PerformanceStatus.Listening -> {
@@ -382,20 +384,90 @@ private fun ReadyContent(onStart: () -> Unit) {
 
 @Composable
 private fun CountInContent(
-    currentBeat: Int,
-    totalBeats: Int
+    currentBar: Int,
+    totalBars: Int,
+    currentBeatInBar: Int,
+    beatsPerBar: Int
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = currentBeat.toString(),
-            style = PerformanceTypography.countIn,
-            color = PerformanceCountIn
-        )
+        // Bar indicator dots at top (small)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 24.dp)
+        ) {
+            repeat(totalBars) { barIndex ->
+                val isCurrentBar = barIndex + 1 == currentBar
+                val isPastBar = barIndex + 1 < currentBar
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(
+                            color = when {
+                                isPastBar -> PerformanceAccent
+                                isCurrentBar -> PerformanceCountIn
+                                else -> PerformanceText.copy(alpha = 0.3f)
+                            },
+                            shape = CircleShape
+                        )
+                )
+            }
+        }
+
+        // Beat dots - visual metronome
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(vertical = 24.dp)
+        ) {
+            repeat(beatsPerBar) { beatIndex ->
+                val beatNumber = beatIndex + 1
+                val isCurrentBeat = beatNumber == currentBeatInBar
+                val isPastBeat = beatNumber < currentBeatInBar
+                val isDownbeat = beatNumber == 1
+
+                // Animate current beat
+                val infiniteTransition = rememberInfiniteTransition(label = "beat_$beatNumber")
+                val scale by infiniteTransition.animateFloat(
+                    initialValue = if (isCurrentBeat) 1f else 1f,
+                    targetValue = if (isCurrentBeat) 1.3f else 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 150),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "beat_scale_$beatNumber"
+                )
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size((if (isDownbeat) 56.dp else 44.dp) * (if (isCurrentBeat) scale else 1f))
+                        .background(
+                            color = when {
+                                isCurrentBeat -> PerformanceCountIn
+                                isPastBeat -> PerformanceAccent.copy(alpha = 0.6f)
+                                else -> PerformanceText.copy(alpha = 0.2f)
+                            },
+                            shape = CircleShape
+                        )
+                ) {
+                    Text(
+                        text = beatNumber.toString(),
+                        style = PerformanceTypography.status,
+                        color = when {
+                            isCurrentBeat || isPastBeat -> PerformanceBackground
+                            else -> PerformanceText.copy(alpha = 0.5f)
+                        }
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Simple text indicator
         Text(
-            text = stringResource(R.string.perform_count_in),
+            text = if (currentBar < totalBars) "Get ready..." else "Starting!",
             style = PerformanceTypography.status,
-            color = PerformanceText
+            color = PerformanceText.copy(alpha = 0.7f)
         )
     }
 }
