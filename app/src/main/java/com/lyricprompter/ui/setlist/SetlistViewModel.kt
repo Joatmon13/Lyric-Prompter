@@ -29,6 +29,13 @@ class SetlistViewModel @Inject constructor(
             initialValue = emptyList()
         )
 
+    val allSongs: StateFlow<List<Song>> = songRepository.getAllSongs()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     private val _currentSetlist = MutableStateFlow<Setlist?>(null)
     val currentSetlist: StateFlow<Setlist?> = _currentSetlist.asStateFlow()
 

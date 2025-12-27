@@ -25,8 +25,10 @@ Lyric Prompter is a native Android app that helps guitarists and singers remembe
 7. Lyrics are imported and displayed for review
 8. Paul edits if needed (fix line breaks, remove [Verse 1] markers, etc.)
 9. Sets metadata:
-   - BPM: 87
-   - Key I sing it in: G
+   - BPM: 87 (or fetched automatically from GetSongBPM API)
+   - Original Key: E (original recording)
+   - Perform Key: G (the key Paul sings in)
+   - Time Signature: 4/4 (fetched from API or selected)
    - Trigger %: 70 (default)
    - Count-in: enabled, 4 beats
 10. Saves song → returns to library
@@ -142,14 +144,19 @@ Lyric Prompter is a native Android app that helps guitarists and singers remembe
 **Settings:**
 | Setting | Type | Default | Range/Options |
 |---------|------|---------|---------------|
-| BPM | Number | Empty | 40-220 |
-| Original Key | Dropdown | Empty | C, C#, D... B, plus minor keys |
+| BPM | Number | Empty (can fetch from API) | 40-220 |
+| Original Key | Dropdown | Empty (can fetch from API) | C, C#, D... B, plus minor keys |
 | Perform Key | Dropdown | Empty | Same as above |
-| Time Signature | Dropdown | 4/4 | 4/4, 3/4, 6/8, etc. |
+| Time Signature | Dropdown | 4/4 (can fetch from API) | 4/4, 3/4, 6/8, 2/4, 2/2, 12/8, 5/4, 7/8 |
 | Count-in Enabled | Toggle | On | On/Off |
-| Count-in Beats | Number | 4 | 1-8 |
+| Count-in Beats | Number | Derived from time signature | 1-8 (defaults: 4/4→4, 3/4→3, 6/8→6, etc.) |
 | Trigger % | Slider | 70 | 40-90 |
 | Prompt Words | Number | 4 | 2-6 |
+
+**BPM/Key Lookup:**
+- Uses GetSongBPM API (api.getsong.co) to fetch BPM, time signature, and key
+- "Refresh BPM" button on song detail screen for songs missing metadata
+- Automatic lookup when adding a new song (if API key configured)
 
 **Actions:**
 - Save changes
@@ -195,10 +202,12 @@ Lyric Prompter is a native Android app that helps guitarists and singers remembe
 
 **Features:**
 - Create/rename/delete setlists
-- Add songs to setlist (from library picker)
+- Add songs to setlist via song picker dialog (+ button in top bar)
+- "Add Songs" button prominently displayed when setlist is empty
 - Reorder songs (drag and drop)
-- Remove songs from setlist
+- Swipe to remove songs from setlist
 - Duplicate setlist
+- Display song key next to each song for quick reference
 
 **Setlist Performance:**
 - Play through setlist in order
@@ -241,7 +250,9 @@ Lyric Prompter is a native Android app that helps guitarists and singers remembe
 - Navigation to Setlists and Settings
 
 ### S2: Song Detail Screen
-- Song metadata display
+- Song metadata display (title, artist, key, BPM, time signature, line count)
+- Info chips showing key, BPM, time signature, line count (shows "N/A" when missing)
+- Refresh BPM button (visible when BPM or time signature is missing)
 - Lyrics preview (scrollable)
 - Perform button (prominent)
 - Edit button
@@ -271,9 +282,11 @@ Lyric Prompter is a native Android app that helps guitarists and singers remembe
 - Tap to view/edit
 
 ### S7: Setlist Detail Screen
-- Ordered song list
-- Drag to reorder
-- Add/remove songs
+- Ordered song list with song title, artist, and key
+- "Add Songs" button (+ icon in top bar, or prominent button when setlist is empty)
+- Song picker dialog to add songs from library
+- Drag to reorder songs
+- Swipe to remove songs from setlist
 - Start setlist button
 
 ### S8: Settings Screen

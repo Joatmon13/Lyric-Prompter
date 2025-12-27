@@ -1,7 +1,12 @@
 package com.lyricprompter.data.remote.bpm
 
+import com.google.gson.JsonDeserializationContext
+import com.google.gson.JsonDeserializer
+import com.google.gson.JsonElement
+import com.google.gson.annotations.JsonAdapter
 import retrofit2.http.GET
 import retrofit2.http.Query
+import java.lang.reflect.Type
 
 /**
  * GetSongBPM API for fetching song tempo and key information.
@@ -33,17 +38,54 @@ interface GetSongBpmApi {
 
 /**
  * Response wrapper for song search.
+ * Note: The API returns 'search' as either an array OR a single object depending on results.
  */
 data class SongSearchResponse(
+    @JsonAdapter(SearchResultDeserializer::class)
     val search: List<SongSearchResult>?
 )
 
 /**
+ * Custom deserializer to handle 'search' being either an array, single object, or error object.
+ */
+class SearchResultDeserializer : JsonDeserializer<List<SongSearchResult>?> {
+    override fun deserialize(
+        json: JsonElement?,
+        typeOfT: Type?,
+        context: JsonDeserializationContext
+    ): List<SongSearchResult>? {
+        if (json == null || json.isJsonNull) return null
+
+        return when {
+            json.isJsonArray -> {
+                json.asJsonArray.map { element ->
+                    context.deserialize<SongSearchResult>(element, SongSearchResult::class.java)
+                }
+            }
+            json.isJsonObject -> {
+                val obj = json.asJsonObject
+                // Check if this is an error response: {"error":"no result"}
+                if (obj.has("error")) {
+                    return null // No results found
+                }
+                // Single result returned as object instead of array
+                listOf(context.deserialize(json, SongSearchResult::class.java))
+            }
+            else -> null
+        }
+    }
+}
+
+/**
  * Individual song search result.
+ * Note: API returns tempo as string, not int. Fields can be null.
  */
 data class SongSearchResult(
-    val id: String,
-    val title: String,
+    val id: String?,
+    val title: String?,
+    val tempo: String?,
+    val time_sig: String?,
+    val key_of: String?,
     val artist: ArtistInfo?
 )
 
@@ -56,11 +98,12 @@ data class SongDetailResponse(
 
 /**
  * Detailed song information including tempo.
+ * Note: API returns tempo as string, not int.
  */
 data class SongDetail(
     val id: String,
     val title: String,
-    val tempo: Int?,
+    val tempo: String?,
     val time_sig: String?,
     val key_of: String?,
     val open_key: String?,

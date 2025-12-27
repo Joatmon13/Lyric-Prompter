@@ -195,6 +195,25 @@ fun SongEditorScreen(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
+                TimeSignatureDropdown(
+                    selectedTimeSignature = timeSignature,
+                    onTimeSignatureSelected = { timeSignature = it },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                KeyDropdown(
+                    label = stringResource(R.string.editor_original_key),
+                    selectedKey = originalKey,
+                    onKeySelected = { originalKey = it },
+                    modifier = Modifier.weight(1f)
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
                 KeyDropdown(
                     label = stringResource(R.string.editor_perform_key),
                     selectedKey = performKey,
@@ -314,6 +333,46 @@ private fun KeyDropdown(
                     text = { Text(key) },
                     onClick = {
                         onKeySelected(key)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeSignatureDropdown(
+    selectedTimeSignature: String,
+    onTimeSignatureSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val timeSignatures = listOf("4/4", "3/4", "6/8", "2/4", "2/2", "12/8", "5/4", "7/8")
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = selectedTimeSignature,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(stringResource(R.string.editor_time_signature)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            timeSignatures.forEach { timeSig ->
+                DropdownMenuItem(
+                    text = { Text(timeSig) },
+                    onClick = {
+                        onTimeSignatureSelected(timeSig)
                         expanded = false
                     }
                 )

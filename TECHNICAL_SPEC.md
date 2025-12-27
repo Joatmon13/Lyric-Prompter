@@ -15,7 +15,8 @@
 | Local Storage | Room + JSON files | Structured data + lyrics/vocabulary |
 | Async | Kotlin Coroutines + Flow | Standard async patterns |
 | Lyrics API | LRCLIB + Genius | Free, comprehensive coverage |
-| HTTP Client | Ktor or Retrofit | API calls for lyrics search |
+| BPM/Key API | GetSongBPM (api.getsong.co) | Free API for tempo and key lookup |
+| HTTP Client | Retrofit + Gson | API calls for lyrics and BPM search |
 
 ---
 
@@ -49,6 +50,9 @@ app/
 │   │   │   │   │   ├── LyricsSearchService.kt
 │   │   │   │   │   ├── LrcLibApi.kt
 │   │   │   │   │   └── GeniusApi.kt
+│   │   │   │   ├── bpm/
+│   │   │   │   │   ├── GetSongBpmApi.kt
+│   │   │   │   │   └── BpmLookupService.kt
 │   │   │   └── repository/
 │   │   │       ├── SongRepository.kt
 │   │   │       └── SetlistRepository.kt
@@ -534,6 +538,73 @@ interface GeniusApi {
 // Or use a library like genius-lyrics-api pattern
 ```
 
+### GetSongBpmApi
+
+Fetches BPM, time signature, and key information for songs.
+
+```kotlin
+interface GetSongBpmApi {
+    // GET https://api.getsong.co/search/?api_key={key}&type=both&lookup={query}
+    @GET("search/")
+    suspend fun searchSongs(
+        @Query("api_key") apiKey: String,
+        @Query("type") type: String = "both",
+        @Query("lookup") query: String
+    ): SongSearchResponse
+}
+
+// Response wrapper - 'search' can be array, single object, or error object
+data class SongSearchResponse(
+    @JsonAdapter(SearchResultDeserializer::class)
+    val search: List<SongSearchResult>?
+)
+
+data class SongSearchResult(
+    val id: String?,
+    val title: String?,
+    val tempo: String?,      // BPM as string
+    val time_sig: String?,   // e.g., "4/4"
+    val key_of: String?,     // e.g., "Bm"
+    val artist: ArtistInfo?
+)
+
+// Custom deserializer handles API returning:
+// - Array of results
+// - Single object (when 1 result)
+// - Error object: {"error":"no result"}
+```
+
+**API Usage Notes:**
+- Base URL: `https://api.getsong.co/`
+- Requires API key (register at getsongbpm.com)
+- Use type="both" with `song:` and `artist:` prefixes for best matching
+- Example query: `song:Hotel California artist:Eagles`
+- Rate limit: 3000 requests/hour
+
+### BpmLookupService
+
+Orchestrates BPM lookup with error handling.
+
+```kotlin
+@Singleton
+class BpmLookupService @Inject constructor(
+    private val api: GetSongBpmApi
+) {
+    suspend fun lookupBpm(title: String, artist: String, apiKey: String): BpmResult
+}
+
+sealed interface BpmResult {
+    data class Success(
+        val bpm: Int,
+        val key: String? = null,
+        val timeSignature: String? = null
+    ) : BpmResult
+    data object NotFound : BpmResult
+    data object NoApiKey : BpmResult
+    data class Error(val message: String) : BpmResult
+}
+```
+
 ### ProcessLyricsUseCase
 
 Transforms raw lyrics text into structured Song data.
@@ -969,3 +1040,5 @@ class LyricPrompterApp : Application() {
 | Battery drain from constant listening | Optimise Vosk usage, pause when not performing |
 | Lost position mid-song | Add "reset to line X" gesture, or tap current line to resync |
 | Lyrics copyright | Only fetch on user request, don't cache from APIs, manual entry fallback |
+| BPM API variability | GetSongBPM may return object/array/error - use custom deserializer; manual entry fallback with "Refresh BPM" button |
+| Song title mismatches in API | Use fuzzy matching, search with both song: and artist: prefixes; manual entry as fallback |

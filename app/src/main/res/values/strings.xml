@@ -19,6 +19,10 @@
     <string name="song_edit">Edit</string>
     <string name="song_delete">Delete</string>
     <string name="song_delete_confirm">Delete this song?</string>
+    <string name="song_refresh_bpm">Refresh BPM</string>
+    <string name="song_refreshing_bpm">Looking up BPM…</string>
+    <string name="song_bpm_not_found">BPM not found for this song</string>
+    <string name="song_bpm_updated">BPM updated successfully</string>
 
     <!-- Song Editor Screen -->
     <string name="editor_title">Edit Song</string>

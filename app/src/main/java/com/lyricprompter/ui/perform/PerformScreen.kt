@@ -8,10 +8,18 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +27,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
@@ -302,7 +313,10 @@ private fun PerformContent(
                             currentLineIndex = performanceState.currentLineIndex,
                             totalLines = song.lineCount,
                             currentLineText = song.lines.getOrNull(performanceState.currentLineIndex)?.text,
-                            nextLineText = song.lines.getOrNull(performanceState.currentLineIndex + 1)?.text
+                            currentLineWords = song.lines.getOrNull(performanceState.currentLineIndex)?.words ?: emptyList(),
+                            nextLineText = song.lines.getOrNull(performanceState.currentLineIndex + 1)?.text,
+                            recognizedWords = performanceState.recognizedWords,
+                            lineConfidence = performanceState.lineConfidence
                         )
                     }
                     is PerformanceStatus.Paused -> {
@@ -386,35 +400,58 @@ private fun CountInContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ListeningContent(
     currentLineIndex: Int,
     totalLines: Int,
     currentLineText: String?,
-    nextLineText: String?
+    currentLineWords: List<String>,
+    nextLineText: String?,
+    recognizedWords: List<String>,
+    lineConfidence: Float
 ) {
+    // Get last few recognized words for display
+    val recentWords = recognizedWords.takeLast(8)
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Status
-        Text(
-            text = stringResource(R.string.perform_line_of, currentLineIndex + 1, totalLines),
-            style = PerformanceTypography.status,
-            color = PerformanceListening
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Current line (backup display)
-        currentLineText?.let { text ->
+        // Status with microphone indicator
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            // Pulsing microphone indicator
+            PulsingMicIndicator()
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = text,
-                style = PerformanceTypography.currentLine,
-                color = PerformanceText,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                text = stringResource(R.string.perform_line_of, currentLineIndex + 1, totalLines),
+                style = PerformanceTypography.status,
+                color = PerformanceListening
             )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Current line with word highlighting
+        if (currentLineText != null && currentLineWords.isNotEmpty()) {
+            HighlightedLine(
+                originalText = currentLineText,
+                lineWords = currentLineWords,
+                recognizedWords = recognizedWords
+            )
+        } else {
+            currentLineText?.let { text ->
+                Text(
+                    text = text,
+                    style = PerformanceTypography.currentLine,
+                    color = PerformanceText,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -428,6 +465,165 @@ private fun ListeningContent(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Recognition feedback - show recent recognized words
+        if (recentWords.isNotEmpty()) {
+            RecognitionFeedback(words = recentWords)
+        }
+    }
+}
+
+@Composable
+private fun PulsingMicIndicator() {
+    val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mic_alpha"
+    )
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mic_scale"
+    )
+
+    // Pulsing circle with inner dot to indicate recording
+    Box(
+        modifier = Modifier
+            .size((20 * scale).dp)
+            .background(
+                color = PerformanceListening.copy(alpha = alpha * 0.3f),
+                shape = CircleShape
+            )
+            .border(
+                width = 2.dp,
+                color = PerformanceListening.copy(alpha = alpha),
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        // Inner recording dot
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(
+                    color = PerformanceListening.copy(alpha = alpha),
+                    shape = CircleShape
+                )
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HighlightedLine(
+    originalText: String,
+    lineWords: List<String>,
+    recognizedWords: List<String>
+) {
+    // Split original text into words while preserving spacing/punctuation
+    val displayWords = originalText.split(Regex("(?<=\\s)|(?=\\s)")).filter { it.isNotEmpty() }
+
+    // Track which line words have been recognized
+    val recognizedSet = recognizedWords.map { it.lowercase() }.toSet()
+
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        var lineWordIndex = 0
+        displayWords.forEach { word ->
+            val trimmedWord = word.trim()
+            val normalizedWord = trimmedWord.lowercase().replace(Regex("[^a-z0-9']"), "")
+
+            if (trimmedWord.isBlank()) {
+                // Preserve whitespace
+                Text(
+                    text = word,
+                    style = PerformanceTypography.currentLine,
+                    color = PerformanceText
+                )
+            } else {
+                // Check if this word has been recognized
+                val isRecognized = if (lineWordIndex < lineWords.size) {
+                    val lineWord = lineWords[lineWordIndex]
+                    recognizedSet.contains(lineWord)
+                } else {
+                    false
+                }
+
+                Text(
+                    text = word,
+                    style = PerformanceTypography.currentLine,
+                    color = if (isRecognized) PerformanceAccent else PerformanceText.copy(alpha = 0.7f),
+                    modifier = if (isRecognized) {
+                        Modifier
+                            .background(
+                                color = PerformanceAccent.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 2.dp)
+                    } else {
+                        Modifier
+                    }
+                )
+
+                if (normalizedWord.isNotEmpty()) {
+                    lineWordIndex++
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RecognitionFeedback(words: List<String>) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = "Heard:",
+            style = PerformanceTypography.status,
+            color = PerformanceText.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            words.forEach { word ->
+                Text(
+                    text = word,
+                    style = PerformanceTypography.nextLine,
+                    color = PerformanceListening,
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .border(
+                            width = 1.dp,
+                            color = PerformanceListening.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
         }
     }
 }

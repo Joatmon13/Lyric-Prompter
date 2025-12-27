@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,15 +16,20 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,14 +60,36 @@ fun SongDetailScreen(
     onDeleted: () -> Unit
 ) {
     val song by viewModel.song.collectAsStateWithLifecycle()
+    val bpmRefreshState by viewModel.bpmRefreshState.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(songId) {
         viewModel.loadSong(songId)
     }
 
+    // Handle BPM refresh state changes
+    LaunchedEffect(bpmRefreshState) {
+        when (bpmRefreshState) {
+            is BpmRefreshState.Success -> {
+                snackbarHostState.showSnackbar("BPM updated successfully")
+                viewModel.clearBpmRefreshState()
+            }
+            is BpmRefreshState.NotFound -> {
+                snackbarHostState.showSnackbar("BPM not found for this song")
+                viewModel.clearBpmRefreshState()
+            }
+            is BpmRefreshState.Error -> {
+                snackbarHostState.showSnackbar("Error: ${(bpmRefreshState as BpmRefreshState.Error).message}")
+                viewModel.clearBpmRefreshState()
+            }
+            else -> {}
+        }
+    }
+
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(song?.title ?: "") },
@@ -91,6 +119,29 @@ fun SongDetailScreen(
             ) {
                 // Song info card
                 SongInfoCard(song = currentSong)
+
+                // Show refresh BPM button if BPM or time signature is missing
+                if (currentSong.bpm == null || currentSong.timeSignature == null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.refreshBpm() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = bpmRefreshState !is BpmRefreshState.Loading
+                    ) {
+                        if (bpmRefreshState is BpmRefreshState.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.padding(4.dp))
+                            Text(stringResource(R.string.song_refreshing_bpm))
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(modifier = Modifier.padding(4.dp))
+                            Text(stringResource(R.string.song_refresh_bpm))
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -179,9 +230,8 @@ private fun SongInfoCard(song: Song) {
                 song.displayKey?.let { key ->
                     InfoChip(label = "Key", value = key)
                 }
-                song.bpm?.let { bpm ->
-                    InfoChip(label = "BPM", value = bpm.toString())
-                }
+                InfoChip(label = "BPM", value = song.bpm?.toString() ?: "N/A")
+                InfoChip(label = "Time", value = song.timeSignature ?: "N/A")
                 InfoChip(label = "Lines", value = song.lineCount.toString())
             }
         }

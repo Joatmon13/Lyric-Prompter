@@ -30,52 +30,53 @@ class BpmLookupService @Inject constructor(
         }
 
         return try {
-            // Search for the song
-            val query = "$title $artist"
-            Log.d(TAG, "Searching BPM for: $query")
+            // Use "both" type search with song: and artist: prefixes for better matching
+            val query = "song:$title artist:$artist"
+            Log.i(TAG, "Searching BPM for: $query")
 
             val searchResponse = api.searchSongs(
                 apiKey = apiKey,
+                type = "both",
                 query = query
             )
 
+            Log.i(TAG, "Search response: ${searchResponse.search?.size ?: 0} results")
+
             val results = searchResponse.search
             if (results.isNullOrEmpty()) {
-                Log.d(TAG, "No BPM results found for: $query")
+                Log.w(TAG, "No BPM results found for: $query")
                 return BpmResult.NotFound
             }
 
-            // Find best matching result
+            // Find best matching result (search results already contain tempo)
+            // Note: API can return null for title/artist fields
             val bestMatch = results.find { result ->
-                result.title.contains(title, ignoreCase = true) &&
+                result.title?.contains(title, ignoreCase = true) == true &&
                 result.artist?.name?.contains(artist, ignoreCase = true) == true
             } ?: results.firstOrNull()
 
             if (bestMatch == null) {
+                Log.w(TAG, "No matching result found")
                 return BpmResult.NotFound
             }
 
-            // Get detailed song info with BPM
-            Log.d(TAG, "Getting BPM details for song ID: ${bestMatch.id}")
-            val detailResponse = api.getSong(
-                apiKey = apiKey,
-                songId = bestMatch.id
-            )
+            Log.i(TAG, "Best match: '${bestMatch.title}' by ${bestMatch.artist?.name}, tempo=${bestMatch.tempo}, time_sig=${bestMatch.time_sig}, key=${bestMatch.key_of}")
 
-            val song = detailResponse.song
-            if (song?.tempo != null && song.tempo > 0) {
-                Log.i(TAG, "Found BPM for '$title': ${song.tempo}")
+            // Parse tempo string to int
+            val tempoInt = bestMatch.tempo?.toIntOrNull()
+            if (tempoInt != null && tempoInt > 0) {
+                Log.i(TAG, "Found BPM for '$title': $tempoInt")
                 BpmResult.Success(
-                    bpm = song.tempo,
-                    key = song.key_of,
-                    timeSignature = song.time_sig
+                    bpm = tempoInt,
+                    key = bestMatch.key_of,
+                    timeSignature = bestMatch.time_sig
                 )
             } else {
-                Log.d(TAG, "Song found but no BPM available")
+                Log.w(TAG, "Song found but no valid BPM: tempo='${bestMatch.tempo}'")
                 BpmResult.NotFound
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error looking up BPM", e)
+            Log.e(TAG, "Error looking up BPM: ${e.message}", e)
             BpmResult.Error(e.message ?: "Unknown error")
         }
     }

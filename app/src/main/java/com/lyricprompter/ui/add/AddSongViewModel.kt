@@ -100,11 +100,14 @@ class AddSongViewModel @Inject constructor(
 
         return when (val result = bpmLookupService.lookupBpm(song.title, song.artist, apiKey)) {
             is BpmResult.Success -> {
-                Log.i(TAG, "Found BPM for '${song.title}': ${result.bpm}")
+                Log.i(TAG, "Found BPM for '${song.title}': ${result.bpm}, time sig: ${result.timeSignature}, key: ${result.key}")
+                val timeSig = result.timeSignature ?: song.timeSignature
+                val countInBeats = parseCountInBeatsFromTimeSignature(timeSig)
                 song.copy(
                     bpm = result.bpm,
                     originalKey = result.key ?: song.originalKey,
-                    timeSignature = result.timeSignature ?: song.timeSignature
+                    timeSignature = timeSig,
+                    countInBeats = countInBeats
                 )
             }
             is BpmResult.NotFound -> {
@@ -119,6 +122,23 @@ class AddSongViewModel @Inject constructor(
                 Log.w(TAG, "BPM lookup failed: ${result.message}")
                 song
             }
+        }
+    }
+
+    /**
+     * Parse the numerator from a time signature string (e.g., "4/4" -> 4, "3/4" -> 3, "6/8" -> 6)
+     * to use as count-in beats.
+     */
+    private fun parseCountInBeatsFromTimeSignature(timeSignature: String?): Int {
+        if (timeSignature.isNullOrBlank()) return 4 // default to 4/4
+
+        return try {
+            val parts = timeSignature.split("/")
+            val numerator = parts.getOrNull(0)?.toIntOrNull() ?: 4
+            // Clamp to valid range (1-8)
+            numerator.coerceIn(1, 8)
+        } catch (e: Exception) {
+            4 // default to 4 beats
         }
     }
 
