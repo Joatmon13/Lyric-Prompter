@@ -238,6 +238,10 @@ class AudioRouter @Inject constructor(
     /**
      * Enable Do Not Disturb mode for performance.
      * Only works if permission was granted.
+     *
+     * Uses INTERRUPTION_FILTER_PRIORITY instead of INTERRUPTION_FILTER_NONE
+     * because NONE blocks all audio including TTS/media, while PRIORITY
+     * blocks notifications but allows media sounds (which TTS uses via STREAM_MUSIC).
      */
     fun enableDnd(): Boolean {
         if (!canModifyDnd()) {
@@ -247,9 +251,10 @@ class AudioRouter @Inject constructor(
 
         return try {
             previousDndMode = notificationManager.currentInterruptionFilter
-            notificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
+            // Use PRIORITY instead of NONE - NONE blocks TTS audio
+            notificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
             dndWasEnabled = true
-            Log.i(TAG, "DND enabled (was: $previousDndMode)")
+            Log.i(TAG, "DND enabled with PRIORITY filter (was: $previousDndMode)")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to enable DND", e)
@@ -280,8 +285,6 @@ class AudioRouter @Inject constructor(
      * The side effect is that other apps can interrupt our performance, but
      * at least we can hear the prompts.
      *
-     * NOTE: We also skip DND for now as it may block TTS output.
-     *
      * TODO: Investigate alternative audio focus strategies that don't suspend A2DP.
      */
     fun enterPerformanceMode(enableDndMode: Boolean = true): Boolean {
@@ -291,8 +294,12 @@ class AudioRouter @Inject constructor(
         Log.d(TAG, "Entering performance mode - saved volumes: MUSIC=$savedMusicVolume, VOICE_CALL=$savedBluetoothVolume")
 
         // Skip audio focus - it suspends Bluetooth A2DP and causes silence
-        // Skip DND - it may block TTS output
-        Log.i(TAG, "Performance mode: skipping audio focus and DND to preserve A2DP/TTS")
+        Log.i(TAG, "Performance mode: skipping audio focus to preserve A2DP/TTS")
+
+        // Enable DND if requested and we have permission
+        if (enableDndMode && canModifyDnd()) {
+            enableDnd()
+        }
 
         return true
     }
