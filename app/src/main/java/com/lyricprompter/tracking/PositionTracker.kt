@@ -102,56 +102,43 @@ class PositionTracker @Inject constructor(
             recognizedBuffer.removeAt(0)
         }
 
-        // Define search window: start from line after lastPrompted (never go back)
-        // Only look at lines we haven't prompted yet
-        val windowStart = maxOf(currentLineIndex - SEARCH_WINDOW_BEFORE, lastPromptedLine + 1)
-        val searchWindow = windowStart..(currentLineIndex + SEARCH_WINDOW_AFTER)
+        // SEQUENTIAL MODE: Only look at the next expected line
+        // This prevents jumping ahead to repeating choruses or similar lines
+        val nextExpectedLine = lastPromptedLine + 1
 
-        // Find best matching line
-        val match = fuzzyMatcher.findBestMatch(
-            recognizedWords = recognizedBuffer,
-            lineWordsList = lineWordsList,
-            searchWindow = searchWindow
-        )
-
-        if (match == null) {
+        // Check if we've reached the end of the song
+        if (nextExpectedLine >= lineWordsList.size) {
+            Log.d(TAG, "[END_OF_SONG] nextExpected=$nextExpectedLine | totalLines=${lineWordsList.size}")
             return null
         }
 
-        val (matchedLineIndex, matchScore) = match
-        val lineText = currentSong.lines.getOrNull(matchedLineIndex)?.text?.take(40) ?: ""
+        // Match ONLY against the next expected line
+        val nextLineWords = lineWordsList[nextExpectedLine]
+        val matchScore = fuzzyMatcher.matchScore(recognizedBuffer, nextLineWords)
+
+        val lineText = currentSong.lines.getOrNull(nextExpectedLine)?.text?.take(40) ?: ""
         Log.d(TAG, "[MATCH_RESULT] " +
-            "line=$matchedLineIndex | " +
+            "line=$nextExpectedLine | " +
             "score=${(matchScore * 100).toInt()}% | " +
             "trigger=${currentSong.triggerPercent}% | " +
             "text=\"$lineText\"")
 
-        // Update current position if we've moved forward
-        if (matchedLineIndex > currentLineIndex) {
-            Log.i(TAG, "[LINE_ADVANCE] from=$currentLineIndex | to=$matchedLineIndex")
-            currentLineIndex = matchedLineIndex
-        }
-
         // Check if we should trigger a prompt based on percentage threshold
-        val lineWordCount = lineWordsList.getOrNull(matchedLineIndex)?.size ?: 0
+        val lineWordCount = nextLineWords.size
         if (promptTrigger.shouldPrompt(
-                lineIndex = matchedLineIndex,
+                lineIndex = nextExpectedLine,
                 matchScore = matchScore,
                 triggerPercent = currentSong.triggerPercent,
                 lastPromptedLine = lastPromptedLine,
                 lineWordCount = lineWordCount
             )
         ) {
-            // Check if we skipped any lines - if so, prompt the next expected line instead
-            val expectedLine = lastPromptedLine + 1
-            if (matchedLineIndex > expectedLine && expectedLine < lineWordsList.size) {
-                Log.w(TAG, "[LINE_SKIP] expected=$expectedLine | matched=$matchedLineIndex | prompting_expected")
-                return triggerPrompt(expectedLine, currentSong)
-            }
-            return triggerPrompt(matchedLineIndex, currentSong)
+            // Update currentLineIndex to next line
+            currentLineIndex = nextExpectedLine
+            return triggerPrompt(nextExpectedLine, currentSong)
         } else {
             Log.v(TAG, "[THRESHOLD_NOT_MET] " +
-                "line=$matchedLineIndex | " +
+                "line=$nextExpectedLine | " +
                 "score=${(matchScore * 100).toInt()}% | " +
                 "trigger=${currentSong.triggerPercent}% | " +
                 "lastPrompted=$lastPromptedLine")
@@ -174,8 +161,34 @@ class PositionTracker @Inject constructor(
         // Advance position to next line
         currentLineIndex = lineIndex + 1
 
-        // Get the prompt text (which is for the NEXT line)
-        val promptText = currentSong.lines.getOrNull(lineIndex)?.promptText
+        // Get the current line to check for prompt marker
+        val currentLine = currentSong.lines.getOrNull(lineIndex)
+
+        // Check if ANY line in the song has "//" marker in the text
+        // This handles songs that haven't been reprocessed yet
+        val songHasAnyMarkers = currentSong.lines.any { it.text.trimEnd().endsWith("//") }
+
+        // Check hasPromptMarker flag, OR check if text ends with "//" (for songs not yet reprocessed)
+        // Gson deserializes missing boolean fields as false, so we need the text fallback
+        val lineTextHasMarker = currentLine?.text?.trimEnd()?.endsWith("//") == true
+        val hasMarker = if (songHasAnyMarkers) {
+            // Song uses markers - check if THIS line has one (either from flag or text)
+            currentLine?.hasPromptMarker == true || lineTextHasMarker
+        } else {
+            // No markers in song - prompt every line (backward compatible)
+            true
+        }
+        val promptText = currentLine?.promptText
+
+        // If line doesn't have prompt marker, just return LineCompleted (no TTS prompt)
+        if (!hasMarker) {
+            if (lineIndex >= lineWordsList.lastIndex) {
+                Log.i(TAG, "[SONG_COMPLETE] lastLine=$lineIndex")
+                return PromptEvent.SongFinished
+            }
+            Log.i(TAG, "[LINE_COMPLETE] line=$lineIndex | noMarker")
+            return PromptEvent.LineCompleted(lineIndex)
+        }
 
         return if (promptText.isNullOrEmpty()) {
             if (lineIndex >= lineWordsList.lastIndex) {

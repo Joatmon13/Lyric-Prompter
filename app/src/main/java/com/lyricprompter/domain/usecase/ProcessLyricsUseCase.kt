@@ -29,17 +29,28 @@ class ProcessLyricsUseCase @Inject constructor() {
         // 1. Clean up text
         val cleaned = cleanLyrics(rawLyrics)
 
-        // 2. Split into lines
-        val lineTexts = splitIntoLines(cleaned)
+        // 2. Split into lines (keep original with markers for detecting)
+        val rawLineTexts = splitIntoLines(cleaned)
 
         // 3. Build LyricLine objects with prompts for the NEXT line
-        val lyricLines = lineTexts.mapIndexed { index, text ->
-            val nextLineText = lineTexts.getOrNull(index + 1)
+        // If ANY line has "//" marker, use marker-based prompting (only prompt when marker present)
+        // If NO lines have markers, default to prompting every line (backward compatible)
+        val anyHasMarker = rawLineTexts.any { hasPromptMarker(it) }
+
+        val lyricLines = rawLineTexts.mapIndexed { index, rawText ->
+            val hasMarker = hasPromptMarker(rawText)
+            val text = stripPromptMarker(rawText)
+            val nextRawText = rawLineTexts.getOrNull(index + 1)
+            val nextText = nextRawText?.let { stripPromptMarker(it) }
+
             LyricLine(
                 index = index,
                 text = text,
                 words = extractWords(text),
-                promptText = generatePrompt(nextLineText, promptWordCount)
+                promptText = generatePrompt(nextText, promptWordCount),
+                // If no markers in song, default to prompting every line
+                // If markers exist, only prompt lines with markers
+                hasPromptMarker = if (anyHasMarker) hasMarker else true
             )
         }
 
@@ -123,6 +134,24 @@ class ProcessLyricsUseCase @Inject constructor() {
             .split("\n")
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+    }
+
+    /**
+     * Check if a line has the "//" prompt marker at the end.
+     */
+    private fun hasPromptMarker(line: String): Boolean {
+        return line.trimEnd().endsWith("//")
+    }
+
+    /**
+     * Strip the "//" prompt marker from the end of a line.
+     */
+    private fun stripPromptMarker(line: String): String {
+        return if (hasPromptMarker(line)) {
+            line.trimEnd().dropLast(2).trimEnd()
+        } else {
+            line
+        }
     }
 
     /**
