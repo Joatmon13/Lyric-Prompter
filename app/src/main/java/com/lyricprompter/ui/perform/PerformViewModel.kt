@@ -120,7 +120,7 @@ class PerformViewModel @Inject constructor(
                 val totalBars = song.countInBars
                 val totalBeats = song.countInTotalBeats
 
-                // Initial state: bar 1, beat 1
+                // Initial state: bar 1, beat 1, barsRemaining = totalBars (countdown: 3 -> 2 -> 1)
                 _uiState.update { state ->
                     if (state is PerformUiState.Ready) {
                         state.copy(
@@ -129,7 +129,8 @@ class PerformViewModel @Inject constructor(
                                     currentBar = 1,
                                     totalBars = totalBars,
                                     currentBeatInBar = 1,
-                                    beatsPerBar = beatsPerBar
+                                    beatsPerBar = beatsPerBar,
+                                    barsRemaining = totalBars
                                 )
                             )
                         )
@@ -143,6 +144,8 @@ class PerformViewModel @Inject constructor(
                         // Calculate which bar and beat within bar (1-indexed)
                         val currentBar = ((beat - 1) / beatsPerBar) + 1
                         val currentBeatInBar = ((beat - 1) % beatsPerBar) + 1
+                        // Bars remaining counts down: 3 -> 2 -> 1 -> 0 (on last beat of last bar)
+                        val barsRemaining = totalBars - currentBar + 1
 
                         _uiState.update { state ->
                             if (state is PerformUiState.Ready) {
@@ -152,7 +155,8 @@ class PerformViewModel @Inject constructor(
                                             currentBar = currentBar,
                                             totalBars = totalBars,
                                             currentBeatInBar = currentBeatInBar,
-                                            beatsPerBar = beatsPerBar
+                                            beatsPerBar = beatsPerBar,
+                                            barsRemaining = barsRemaining
                                         )
                                     )
                                 )
@@ -208,7 +212,7 @@ class PerformViewModel @Inject constructor(
         // Log Vosk recognition to diagnostics
         diagnosticLogger.logVoskResult(text, words.size, isFinal = !isPartial)
 
-        val event = positionTracker.onWordsRecognized(words)
+        val event = positionTracker.onWordsRecognized(words, isFinal = !isPartial)
         val trackingState = positionTracker.getState()
 
         // Update UI state (keep only last 15 words - UI displays 8, matching uses its own buffer)

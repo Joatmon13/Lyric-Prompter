@@ -360,7 +360,8 @@ private fun PerformContent(
                                 currentBar = status.currentBar,
                                 totalBars = status.totalBars,
                                 currentBeatInBar = status.currentBeatInBar,
-                                beatsPerBar = status.beatsPerBar
+                                beatsPerBar = status.beatsPerBar,
+                                barsRemaining = status.barsRemaining
                             )
                         }
                         is PerformanceStatus.Listening -> {
@@ -456,38 +457,28 @@ private fun CountInContent(
     currentBar: Int,
     totalBars: Int,
     currentBeatInBar: Int,
-    beatsPerBar: Int
+    beatsPerBar: Int,
+    barsRemaining: Int
 ) {
     // Calculate overall progress (0.0 to 1.0)
     val totalBeats = totalBars * beatsPerBar
     val currentBeatPosition = (currentBar - 1) * beatsPerBar + currentBeatInBar
     val progress = currentBeatPosition.toFloat() / totalBeats.toFloat()
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        // Bar indicator dots at top (small)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 24.dp)
-        ) {
-            repeat(totalBars) { barIndex ->
-                val isCurrentBar = barIndex + 1 == currentBar
-                val isPastBar = barIndex + 1 < currentBar
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .background(
-                            color = when {
-                                isPastBar -> PerformanceAccent
-                                isCurrentBar -> PerformanceCountIn
-                                else -> PerformanceText.copy(alpha = 0.3f)
-                            },
-                            shape = CircleShape
-                        )
-                )
-            }
-        }
+    // Beat words for display
+    val beatWords = listOf("one", "two", "three", "four", "five", "six", "seven", "eight")
 
-        // Beat dots - visual metronome
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Large countdown number (bars remaining: 3 -> 2 -> 1)
+        Text(
+            text = barsRemaining.toString(),
+            style = PerformanceTypography.countDown,
+            color = PerformanceCountIn
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Beat dots - visual metronome with word labels
         Row(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(vertical = 24.dp)
@@ -497,6 +488,7 @@ private fun CountInContent(
                 val isCurrentBeat = beatNumber == currentBeatInBar
                 val isPastBeat = beatNumber < currentBeatInBar
                 val isDownbeat = beatNumber == 1
+                val beatWord = beatWords.getOrElse(beatIndex) { beatNumber.toString() }
 
                 // Animate current beat
                 val infiniteTransition = rememberInfiniteTransition(label = "beat_$beatNumber")
@@ -510,25 +502,37 @@ private fun CountInContent(
                     label = "beat_scale_$beatNumber"
                 )
 
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size((if (isDownbeat) 56.dp else 44.dp) * (if (isCurrentBeat) scale else 1f))
-                        .background(
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size((if (isDownbeat) 56.dp else 44.dp) * (if (isCurrentBeat) scale else 1f))
+                            .background(
+                                color = when {
+                                    isCurrentBeat -> PerformanceCountIn
+                                    isPastBeat -> PerformanceAccent.copy(alpha = 0.6f)
+                                    else -> PerformanceText.copy(alpha = 0.2f)
+                                },
+                                shape = CircleShape
+                            )
+                    ) {
+                        Text(
+                            text = beatNumber.toString(),
+                            style = PerformanceTypography.status,
                             color = when {
-                                isCurrentBeat -> PerformanceCountIn
-                                isPastBeat -> PerformanceAccent.copy(alpha = 0.6f)
-                                else -> PerformanceText.copy(alpha = 0.2f)
-                            },
-                            shape = CircleShape
+                                isCurrentBeat || isPastBeat -> PerformanceBackground
+                                else -> PerformanceText.copy(alpha = 0.5f)
+                            }
                         )
-                ) {
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = beatNumber.toString(),
-                        style = PerformanceTypography.status,
+                        text = beatWord,
+                        style = PerformanceTypography.nextLine,
                         color = when {
-                            isCurrentBeat || isPastBeat -> PerformanceBackground
-                            else -> PerformanceText.copy(alpha = 0.5f)
+                            isCurrentBeat -> PerformanceCountIn
+                            isPastBeat -> PerformanceAccent.copy(alpha = 0.6f)
+                            else -> PerformanceText.copy(alpha = 0.3f)
                         }
                     )
                 }
@@ -562,7 +566,7 @@ private fun CountInContent(
 
         // Simple text indicator
         Text(
-            text = if (currentBar < totalBars) "Get ready..." else "Starting!",
+            text = if (barsRemaining > 1) "Get ready..." else "Starting!",
             style = PerformanceTypography.status,
             color = PerformanceText.copy(alpha = 0.7f)
         )

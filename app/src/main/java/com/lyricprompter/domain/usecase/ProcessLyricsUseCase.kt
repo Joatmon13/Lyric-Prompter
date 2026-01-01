@@ -39,14 +39,17 @@ class ProcessLyricsUseCase @Inject constructor() {
 
         val lyricLines = rawLineTexts.mapIndexed { index, rawText ->
             val hasMarker = hasPromptMarker(rawText)
-            val text = stripPromptMarker(rawText)
+            // Keep // in the text so it's visible in the editor
+            // But strip it for word extraction and prompt generation
+            val textForDisplay = rawText  // Keep // for visibility
+            val textForMatching = stripPromptMarker(rawText)  // Strip for word matching
             val nextRawText = rawLineTexts.getOrNull(index + 1)
             val nextText = nextRawText?.let { stripPromptMarker(it) }
 
             LyricLine(
                 index = index,
-                text = text,
-                words = extractWords(text),
+                text = textForDisplay,
+                words = extractWords(textForMatching),
                 promptText = generatePrompt(nextText, promptWordCount),
                 // If no markers in song, default to prompting every line
                 // If markers exist, only prompt lines with markers

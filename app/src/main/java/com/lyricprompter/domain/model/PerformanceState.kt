@@ -34,7 +34,8 @@ sealed interface PerformanceStatus {
         val currentBar: Int,
         val totalBars: Int,
         val currentBeatInBar: Int,
-        val beatsPerBar: Int
+        val beatsPerBar: Int,
+        val barsRemaining: Int  // Countdown: 3 -> 2 -> 1 -> 0 (starting)
     ) : PerformanceStatus
     data object Listening : PerformanceStatus
     data object Paused : PerformanceStatus

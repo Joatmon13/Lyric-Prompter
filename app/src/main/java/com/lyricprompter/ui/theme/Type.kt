@@ -159,4 +159,11 @@ object PerformanceTypography {
         fontSize = 120.sp,
         lineHeight = 128.sp
     )
+
+    val countDown = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 96.sp,
+        lineHeight = 104.sp
+    )
 }

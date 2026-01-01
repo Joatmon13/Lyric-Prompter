@@ -44,8 +44,9 @@ class PositionTracker @Inject constructor(
     fun loadSong(song: Song) {
         this.song = song
         this.lineWordsList = song.lines.map { it.words }
+        promptTrigger.configureCooldown(song.bpm, song.timeSignature)
         reset()
-        Log.i(TAG, "[SONG_LOADED] lines=${song.lineCount} | triggerPct=${song.triggerPercent}")
+        Log.i(TAG, "[SONG_LOADED] lines=${song.lineCount} | triggerPct=${song.triggerPercent} | bpm=${song.bpm}")
     }
 
     /**
@@ -55,6 +56,7 @@ class PositionTracker @Inject constructor(
         currentLineIndex = 0
         lastPromptedLine = -1
         recognizedBuffer.clear()
+        promptTrigger.resetCooldown()
         // NOTE: We use full song vocabulary since Vosk can't update grammar during recognition
     }
 
@@ -85,10 +87,15 @@ class PositionTracker @Inject constructor(
     /**
      * Process newly recognized words and check for prompt events.
      *
+     * NEW LOGIC: Only trigger prompts on FINAL results (silence detected).
+     * This ensures we wait for the performer to finish singing the line
+     * before prompting the next one.
+     *
      * @param newWords Words just recognized (may be partial or final result)
+     * @param isFinal True if this is a final result (silence detected), false for partial
      * @return A PromptEvent if action is needed, null otherwise
      */
-    fun onWordsRecognized(newWords: List<String>): PromptEvent? {
+    fun onWordsRecognized(newWords: List<String>, isFinal: Boolean = false): PromptEvent? {
         val currentSong = song ?: return null
         if (newWords.isEmpty()) return null
         if (lineWordsList.isEmpty()) return null
@@ -120,27 +127,29 @@ class PositionTracker @Inject constructor(
         Log.d(TAG, "[MATCH_RESULT] " +
             "line=$nextExpectedLine | " +
             "score=${(matchScore * 100).toInt()}% | " +
-            "trigger=${currentSong.triggerPercent}% | " +
+            "isFinal=$isFinal | " +
             "text=\"$lineText\"")
 
-        // Check if we should trigger a prompt based on percentage threshold
+        // Check if we should trigger a prompt
+        // Key change: pass isFinal to shouldPrompt - only trigger on silence
         val lineWordCount = nextLineWords.size
         if (promptTrigger.shouldPrompt(
                 lineIndex = nextExpectedLine,
                 matchScore = matchScore,
                 triggerPercent = currentSong.triggerPercent,
                 lastPromptedLine = lastPromptedLine,
-                lineWordCount = lineWordCount
+                lineWordCount = lineWordCount,
+                isFinal = isFinal
             )
         ) {
             // Update currentLineIndex to next line
             currentLineIndex = nextExpectedLine
             return triggerPrompt(nextExpectedLine, currentSong)
         } else {
-            Log.v(TAG, "[THRESHOLD_NOT_MET] " +
+            Log.v(TAG, "[WAITING] " +
                 "line=$nextExpectedLine | " +
                 "score=${(matchScore * 100).toInt()}% | " +
-                "trigger=${currentSong.triggerPercent}% | " +
+                "isFinal=$isFinal | " +
                 "lastPrompted=$lastPromptedLine")
         }
 
@@ -152,6 +161,7 @@ class PositionTracker @Inject constructor(
      */
     private fun triggerPrompt(lineIndex: Int, currentSong: Song): PromptEvent? {
         lastPromptedLine = lineIndex
+        promptTrigger.markPromptTriggered()
 
         // Keep last few words for context, don't clear everything
         val wordsToKeep = recognizedBuffer.takeLast(KEEP_AFTER_PROMPT)

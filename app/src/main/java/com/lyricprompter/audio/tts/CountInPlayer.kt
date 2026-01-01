@@ -79,8 +79,10 @@ class CountInPlayer @Inject constructor(
 
         if (isStopped) return
 
-        // 4. Count in (speak numbers at tempo)
+        // 4. Count in (speak beat words at tempo: "one, two, three, four")
         Log.i(TAG, "Starting count: $beats beats at $bpm BPM")
+        val beatWords = listOf("one", "two", "three", "four", "five", "six", "seven", "eight")
+
         for (beat in 1..beats) {
             if (isStopped) {
                 Log.i(TAG, "Count-in stopped")
@@ -89,12 +91,10 @@ class CountInPlayer @Inject constructor(
 
             onBeat(beat)
 
-            // Speak beat number on downbeats (beat 1 of each bar)
+            // Speak every beat as a word ("one", "two", "three", "four")
             val beatInBar = ((beat - 1) % beatsPerBar) + 1
-            if (beatInBar == 1) {
-                val barNumber = ((beat - 1) / beatsPerBar) + 1
-                promptSpeaker.speak(barNumber.toString())
-            }
+            val beatWord = beatWords.getOrElse(beatInBar - 1) { beatInBar.toString() }
+            promptSpeaker.speak(beatWord)
 
             if (beat < beats) {
                 delay(intervalMs)
