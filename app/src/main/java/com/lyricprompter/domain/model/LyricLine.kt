@@ -7,12 +7,14 @@ package com.lyricprompter.domain.model
  * @property text The original text of the line (e.g., "Is this the real life")
  * @property words The normalized words for matching (e.g., ["is", "this", "the", "real", "life"])
  * @property promptText The text to speak as a prompt (first N words of the NEXT line)
- * @property hasPromptMarker Whether this line ends with "//" marker, indicating the next line should be prompted
+ * @property hasPromptMarker Whether this line ends with "//" or "//N" marker, indicating prompt after this line
+ * @property cooldownBeats Number of beats to wait after this line before prompting (from //N notation, null = use default)
  */
 data class LyricLine(
     val index: Int,
     val text: String,
     val words: List<String>,
     val promptText: String,
-    val hasPromptMarker: Boolean = true
+    val hasPromptMarker: Boolean = true,
+    val cooldownBeats: Int? = null  // null = use default, or 1-16 beats from //N notation
 )

@@ -64,10 +64,27 @@ This document tracks all changes made during testing sessions to avoid reiterati
 - Result: Works well in spoken testing
 - Status: **RESOLVED**
 
-**Next Consideration: Variable Timing Per Line**
-- Some lines may need shorter/longer gaps than others
-- Potential enhancement: `//1`, `//2`, `//3` markers for beat count
-- To be evaluated after more singing tests
+**Iteration 4e: Re-enable triggerPercent Threshold**
+- Problem: During singing test, prompts fired on 12-20% matches (racing ahead)
+- Root cause: triggerPercent was being IGNORED - only checking matchScore > 0
+- Fix: Re-enabled triggerPercent check from song settings
+- Now requires BOTH: silence detected AND matchScore >= triggerPercent
+- User can adjust threshold in song settings (default 70%)
+- Status: **TESTING**
+
+**Iteration 4f: Implement //N Beat Notation**
+- User identified that bars/ms settings were redundant - should auto-calculate from BPM
+- Implemented `//N` notation in lyrics for per-line beat counts
+- Examples: `//` (default 2 beats), `//4` (4 beats), `//8` (8 beats for instrumental breaks)
+- Changes:
+  - `LyricLine.kt`: Added `cooldownBeats: Int?` field
+  - `ProcessLyricsUseCase.kt`: Added regex to parse `//N` markers, extract beats 1-16
+  - `PromptTrigger.kt`: Refactored to use per-line cooldowns with `setCooldownForLine(beats)`
+  - `PositionTracker.kt`: Calls `configureSong(bpm)` and `setCooldownForLine()` for each line
+  - `SettingsScreen.kt`: Simplified to single "Default Cooldown" slider (1-8 beats)
+  - Removed redundant min/max cooldown ms sliders
+- Cooldown formula: `cooldown_ms = beats × (60,000 / BPM)`
+- Status: **IMPLEMENTED** - Ready for testing
 
 ---
 
@@ -88,7 +105,7 @@ This document tracks all changes made during testing sessions to avoid reiterati
 
 ---
 
-## Current Configuration (as of Jan 1, 2026 16:30)
+## Current Configuration (as of Jan 2, 2026)
 
 ### Prompt Triggering Logic
 ```
@@ -96,33 +113,41 @@ This document tracks all changes made during testing sessions to avoid reiterati
 2. Match ONLY against next expected line (sequential mode)
 3. On PARTIAL Vosk result: just accumulate, don't trigger
 4. On FINAL Vosk result (silence detected):
-   - If matchScore > 0 (any word matched): check cooldown
-   - If past cooldown: TRIGGER PROMPT
-5. After trigger: start cooldown timer
+   - Check matchScore >= triggerPercent (from song settings)
+   - Check cooldown has elapsed
+   - If both: TRIGGER PROMPT
+5. After trigger: set per-line cooldown based on //N notation
 ```
 
-### Cooldown Configuration
+### Cooldown Configuration (Beat-Based)
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| BARS_PER_LINE | 0.5f | Half a bar debounce |
-| MIN_COOLDOWN_MS | 500ms | Minimum cooldown |
-| MAX_COOLDOWN_MS | 2000ms | Maximum cooldown |
-| DEFAULT_COOLDOWN_MS | 1000ms | When BPM unknown |
+| DEFAULT_COOLDOWN_BEATS | 2 | Default beats when //N not specified |
+| DEFAULT_COOLDOWN_MS | 1000ms | Fallback when BPM unknown |
 
-### Cooldown Examples (4/4 time, 0.5 bars)
-| BPM | Calculated | Actual (clamped) |
-|-----|------------|------------------|
-| 60  | 2000ms     | 2000ms (max)     |
-| 90  | 1333ms     | 1333ms           |
-| 120 | 1000ms     | 1000ms           |
-| 150 | 800ms      | 800ms            |
-| 180 | 667ms      | 667ms            |
+### Per-Line Beat Notation
+| Notation | Beats | Use Case |
+|----------|-------|----------|
+| `//` | 2 (default) | Normal line endings |
+| `//1` | 1 | Quick transitions |
+| `//4` | 4 | Longer pauses |
+| `//8` | 8 | Instrumental breaks |
+| `//16` | 16 | Long solos |
+
+### Cooldown Examples (beats × 60/BPM × 1000)
+| BPM | 2 beats | 4 beats | 8 beats |
+|-----|---------|---------|---------|
+| 60  | 2000ms  | 4000ms  | 8000ms  |
+| 90  | 1333ms  | 2667ms  | 5333ms  |
+| 120 | 1000ms  | 2000ms  | 4000ms  |
+| 150 | 800ms   | 1600ms  | 3200ms  |
 
 ---
 
 ## Pending Tasks
 
-- [ ] Add cooldown/timing settings to app settings with per-song override
+- [x] Add cooldown/timing settings to app settings with per-song override (done via //N notation)
+- [ ] Connect settings UI to persistence (currently uses hardcoded defaults)
 - [ ] Add timing/pause between lines for instrumental breaks
 - [ ] Separate song storage from app (retain on uninstall option)
 - [ ] Add song backup/export feature

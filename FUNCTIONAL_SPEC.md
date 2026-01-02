@@ -131,6 +131,17 @@ Lyric Prompter is a native Android app that helps guitarists and singers remembe
 - Extract unique words → build vocabulary
 - Generate prompt text for each line (first N words of next line)
 - Strip common markers like [Verse], [Chorus], [Bridge]
+- Parse `//` and `//N` markers for prompt control
+
+**Prompt Markers (`//` and `//N`):**
+- Add `//` at the end of a line to trigger a prompt after that line
+- Add `//N` (where N is 1-16) to specify cooldown beats before next prompt
+- Examples:
+  - `Is this the real life //` - prompts next line with default 2-beat cooldown
+  - `Is this just fantasy //4` - prompts with 4-beat cooldown
+  - `Caught in a landslide //8` - prompts after 8-beat pause (for instrumental)
+- If no lines have `//` markers, all lines trigger prompts (backward compatible)
+- Cooldown is calculated from BPM: `cooldown_ms = beats × (60,000 / BPM)`
 
 ### F3: Song Editor
 
@@ -225,9 +236,10 @@ Lyric Prompter is a native Android app that helps guitarists and singers remembe
 | Default Trigger % | Applied to new songs | 70% |
 | Default Prompt Words | Applied to new songs | 4 |
 | Default Count-in | Applied to new songs | Enabled, 4 beats |
+| Default Cooldown | Beats to wait after line ends (when `//N` not specified) | 2 beats |
 | TTS Voice | Android TTS voice selection | System default |
 | TTS Speed | Prompt speaking rate | 1.0x |
-| Audio Output | Force earpiece or auto-detect | Auto |
+| Use Phone Mic | Use device mic for recognition (better quality), prompts via Bluetooth | Off |
 | Theme | Light/Dark/System | System |
 | Keep Screen On | During performance | On |
 

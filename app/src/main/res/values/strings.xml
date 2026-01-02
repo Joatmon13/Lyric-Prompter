@@ -72,6 +72,9 @@
     <string name="settings_default_trigger">Default Trigger %</string>
     <string name="settings_default_prompt_words">Default Prompt Words</string>
     <string name="settings_default_count_in">Default Count-in</string>
+    <string name="settings_timing">Timing</string>
+    <string name="settings_default_cooldown_beats">Default Cooldown</string>
+    <string name="settings_default_cooldown_beats_description">Beats to wait after line ends. Use //N in lyrics to override per line (e.g. //4 for 4 beats)</string>
     <string name="settings_audio">Audio</string>
     <string name="settings_tts_voice">TTS Voice</string>
     <string name="settings_tts_speed">TTS Speed</string>

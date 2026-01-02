@@ -39,9 +39,10 @@ class ProcessLyricsUseCase @Inject constructor() {
 
         val lyricLines = rawLineTexts.mapIndexed { index, rawText ->
             val hasMarker = hasPromptMarker(rawText)
-            // Keep // in the text so it's visible in the editor
+            val cooldownBeats = if (hasMarker) extractCooldownBeats(rawText) else null
+            // Keep //N in the text so it's visible in the editor
             // But strip it for word extraction and prompt generation
-            val textForDisplay = rawText  // Keep // for visibility
+            val textForDisplay = rawText  // Keep //N for visibility
             val textForMatching = stripPromptMarker(rawText)  // Strip for word matching
             val nextRawText = rawLineTexts.getOrNull(index + 1)
             val nextText = nextRawText?.let { stripPromptMarker(it) }
@@ -53,7 +54,8 @@ class ProcessLyricsUseCase @Inject constructor() {
                 promptText = generatePrompt(nextText, promptWordCount),
                 // If no markers in song, default to prompting every line
                 // If markers exist, only prompt lines with markers
-                hasPromptMarker = if (anyHasMarker) hasMarker else true
+                hasPromptMarker = if (anyHasMarker) hasMarker else true,
+                cooldownBeats = cooldownBeats
             )
         }
 
@@ -139,22 +141,35 @@ class ProcessLyricsUseCase @Inject constructor() {
             .filter { it.isNotEmpty() }
     }
 
+    // Regex to match // or //N at end of line (where N is 1-16)
+    private val promptMarkerRegex = Regex("//([0-9]{1,2})?\\s*$")
+
     /**
-     * Check if a line has the "//" prompt marker at the end.
+     * Check if a line has the "//" or "//N" prompt marker at the end.
      */
     private fun hasPromptMarker(line: String): Boolean {
-        return line.trimEnd().endsWith("//")
+        return promptMarkerRegex.containsMatchIn(line.trimEnd())
     }
 
     /**
-     * Strip the "//" prompt marker from the end of a line.
+     * Extract the cooldown beats from a "//N" marker.
+     * Returns null if just "//" (use default), or the number N if "//N" (1-16).
+     */
+    private fun extractCooldownBeats(line: String): Int? {
+        val match = promptMarkerRegex.find(line.trimEnd())
+        val beatsStr = match?.groupValues?.getOrNull(1)
+        return if (beatsStr.isNullOrEmpty()) {
+            null  // Just "//" - use default
+        } else {
+            beatsStr.toIntOrNull()?.coerceIn(1, 16)
+        }
+    }
+
+    /**
+     * Strip the "//" or "//N" prompt marker from the end of a line.
      */
     private fun stripPromptMarker(line: String): String {
-        return if (hasPromptMarker(line)) {
-            line.trimEnd().dropLast(2).trimEnd()
-        } else {
-            line
-        }
+        return line.trimEnd().replace(promptMarkerRegex, "").trimEnd()
     }
 
     /**

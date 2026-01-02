@@ -44,7 +44,7 @@ class PositionTracker @Inject constructor(
     fun loadSong(song: Song) {
         this.song = song
         this.lineWordsList = song.lines.map { it.words }
-        promptTrigger.configureCooldown(song.bpm, song.timeSignature)
+        promptTrigger.configureSong(song.bpm)
         reset()
         Log.i(TAG, "[SONG_LOADED] lines=${song.lineCount} | triggerPct=${song.triggerPercent} | bpm=${song.bpm}")
     }
@@ -161,6 +161,10 @@ class PositionTracker @Inject constructor(
      */
     private fun triggerPrompt(lineIndex: Int, currentSong: Song): PromptEvent? {
         lastPromptedLine = lineIndex
+
+        // Set cooldown based on this line's //N notation (or use default)
+        val currentLine = currentSong.lines.getOrNull(lineIndex)
+        promptTrigger.setCooldownForLine(currentLine?.cooldownBeats)
         promptTrigger.markPromptTriggered()
 
         // Keep last few words for context, don't clear everything
@@ -171,16 +175,16 @@ class PositionTracker @Inject constructor(
         // Advance position to next line
         currentLineIndex = lineIndex + 1
 
-        // Get the current line to check for prompt marker
-        val currentLine = currentSong.lines.getOrNull(lineIndex)
+        // Regex to match // or //N at end of line (where N is 1-16)
+        val promptMarkerRegex = Regex("//([0-9]{1,2})?\\s*$")
 
-        // Check if ANY line in the song has "//" marker in the text
+        // Check if ANY line in the song has "//" or "//N" marker in the text
         // This handles songs that haven't been reprocessed yet
-        val songHasAnyMarkers = currentSong.lines.any { it.text.trimEnd().endsWith("//") }
+        val songHasAnyMarkers = currentSong.lines.any { promptMarkerRegex.containsMatchIn(it.text.trimEnd()) }
 
-        // Check hasPromptMarker flag, OR check if text ends with "//" (for songs not yet reprocessed)
+        // Check hasPromptMarker flag, OR check if text ends with "//" or "//N" (for songs not yet reprocessed)
         // Gson deserializes missing boolean fields as false, so we need the text fallback
-        val lineTextHasMarker = currentLine?.text?.trimEnd()?.endsWith("//") == true
+        val lineTextHasMarker = currentLine?.text?.let { promptMarkerRegex.containsMatchIn(it.trimEnd()) } == true
         val hasMarker = if (songHasAnyMarkers) {
             // Song uses markers - check if THIS line has one (either from flag or text)
             currentLine?.hasPromptMarker == true || lineTextHasMarker

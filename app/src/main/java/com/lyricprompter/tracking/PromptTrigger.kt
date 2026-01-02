@@ -12,83 +12,74 @@ class PromptTrigger @Inject constructor() {
     companion object {
         private const val TAG = "LP.Trigger"
 
-        // Short lines (4 or fewer words) get a reduced threshold
-        private const val SHORT_LINE_THRESHOLD = 4
-        private const val SHORT_LINE_REDUCTION = 0.15f  // Reduce by 15%
+        // Default beats for cooldown when not specified per-line
+        private const val DEFAULT_COOLDOWN_BEATS = 2
 
-        // Default cooldown when BPM is not available (fallback)
-        // Short since silence detection handles the main timing
+        // Default cooldown when BPM is not available (fallback in ms)
         private const val DEFAULT_COOLDOWN_MS = 1000L  // 1 second
 
-        // Minimum/maximum cooldown bounds (safety limits)
-        // With silence detection, we only need a short cooldown to prevent
-        // rapid-fire prompts from brief pauses mid-line
-        private const val MIN_COOLDOWN_MS = 500L    // 0.5 seconds minimum
-        private const val MAX_COOLDOWN_MS = 2000L   // 2 seconds maximum
-
-        // Bars per line for cooldown calculation
-        // Using 0.5 bars - just a brief debounce since silence detection handles timing
-        private const val BARS_PER_LINE = 0.5f
-
         /**
-         * Calculate cooldown duration based on BPM and time signature.
+         * Calculate cooldown duration in ms based on beats and BPM.
+         * Formula: cooldown = (beats × 60 / BPM) seconds
          *
-         * With silence detection, this is just a debounce to prevent rapid-fire
-         * prompts from brief pauses. We use 0.5 bars.
-         * Formula: cooldown = (barsPerLine × beatsPerBar × 60 / BPM) seconds
-         *
-         * Examples (4/4 time, 0.5 bars):
-         * - 60 BPM:  0.5 bar × 4 beats × (60/60)  = 2.0 sec (capped at max)
-         * - 90 BPM:  0.5 bar × 4 beats × (60/90)  = 1.3 sec
-         * - 120 BPM: 0.5 bar × 4 beats × (60/120) = 1.0 sec
-         * - 150 BPM: 0.5 bar × 4 beats × (60/150) = 0.8 sec
-         * - 180 BPM: 0.5 bar × 4 beats × (60/180) = 0.67 sec
+         * Examples:
+         * - 2 beats at 120 BPM: 2 × (60/120) = 1.0 sec
+         * - 4 beats at 120 BPM: 4 × (60/120) = 2.0 sec
+         * - 8 beats at 120 BPM: 8 × (60/120) = 4.0 sec
+         * - 2 beats at 60 BPM:  2 × (60/60)  = 2.0 sec
          */
-        fun calculateCooldownMs(bpm: Int?, timeSignature: String?): Long {
+        fun calculateCooldownMs(beats: Int, bpm: Int?): Long {
             if (bpm == null || bpm <= 0) {
                 return DEFAULT_COOLDOWN_MS
             }
-
-            val beatsPerBar = Song.beatsPerBar(timeSignature)
-            val totalBeats = BARS_PER_LINE * beatsPerBar
-            val cooldownSeconds = (totalBeats * 60.0) / bpm
-            val cooldownMs = (cooldownSeconds * 1000).toLong()
-
-            return cooldownMs.coerceIn(MIN_COOLDOWN_MS, MAX_COOLDOWN_MS)
+            val cooldownSeconds = (beats * 60.0) / bpm
+            return (cooldownSeconds * 1000).toLong()
         }
     }
 
     // Track when the last prompt was triggered
     private var lastPromptTimeMs: Long = 0L
 
-    // Current cooldown duration (set when song is loaded)
-    private var cooldownMs: Long = DEFAULT_COOLDOWN_MS
+    // Current cooldown for the active line (in ms)
+    private var currentCooldownMs: Long = DEFAULT_COOLDOWN_MS
+
+    // Song's BPM for calculating per-line cooldowns
+    private var songBpm: Int? = null
 
     /**
-     * Configure cooldown based on song's BPM and time signature.
-     * Call this when a song is loaded.
+     * Configure with song's BPM. Called when a song is loaded.
      */
-    fun configureCooldown(bpm: Int?, timeSignature: String?) {
-        cooldownMs = calculateCooldownMs(bpm, timeSignature)
-        Log.i(TAG, "[COOLDOWN_CONFIG] bpm=$bpm | timeSig=$timeSignature | cooldown=${cooldownMs}ms")
+    fun configureSong(bpm: Int?) {
+        songBpm = bpm
+        currentCooldownMs = calculateCooldownMs(DEFAULT_COOLDOWN_BEATS, bpm)
+        Log.i(TAG, "[SONG_CONFIG] bpm=$bpm | defaultCooldown=${currentCooldownMs}ms")
+    }
+
+    /**
+     * Set the cooldown for the current line based on its beat count.
+     * @param beats Number of beats from //N notation, or null to use default
+     */
+    fun setCooldownForLine(beats: Int?) {
+        val actualBeats = beats ?: DEFAULT_COOLDOWN_BEATS
+        currentCooldownMs = calculateCooldownMs(actualBeats, songBpm)
+        Log.d(TAG, "[LINE_COOLDOWN] beats=$actualBeats | cooldown=${currentCooldownMs}ms")
     }
 
     /**
      * Determine if a prompt should be triggered.
      *
-     * NEW LOGIC: Wait for silence (isFinal=true) before triggering.
-     * This ensures we don't interrupt while the performer is still singing.
+     * Logic: Wait for silence AND minimum match threshold before triggering.
      *
      * Requirements to trigger:
-     * 1. Must have matched at least one word (score > 0)
+     * 1. Must meet minimum match threshold (triggerPercent from song settings)
      * 2. Must be a FINAL result (silence detected - user stopped singing)
      * 3. Must not be in cooldown (prevents rapid-fire prompts)
      *
      * @param lineIndex Current line being matched
      * @param matchScore How well the recognized words match the line (0.0-1.0)
-     * @param triggerPercent IGNORED - kept for API compatibility but no longer used
+     * @param triggerPercent Minimum match percentage required (from song settings)
      * @param lastPromptedLine The last line that was prompted (-1 if none)
-     * @param lineWordCount IGNORED - kept for API compatibility but no longer used
+     * @param lineWordCount Number of words in the line (unused but kept for API)
      * @param isFinal True if this is a final result (silence detected)
      * @return true if we should speak the prompt for the next line
      */
@@ -103,11 +94,17 @@ class PromptTrigger @Inject constructor() {
         // Don't re-prompt the same line or previous lines
         if (lineIndex <= lastPromptedLine) return false
 
-        // Must have matched at least one word
-        val hasAnyMatch = matchScore > 0f
-        if (!hasAnyMatch) return false
+        // Check if match score meets threshold
+        val threshold = triggerPercent / 100f
+        val meetsThreshold = matchScore >= threshold
+        if (!meetsThreshold) {
+            if (matchScore > 0f) {
+                Log.v(TAG, "[BELOW_THRESHOLD] score=${(matchScore * 100).toInt()}% < ${triggerPercent}%")
+            }
+            return false
+        }
 
-        // KEY CHANGE: Only trigger on FINAL results (silence detected)
+        // Only trigger on FINAL results (silence detected)
         // This waits for the performer to finish singing before prompting
         if (!isFinal) {
             Log.v(TAG, "[WAITING_FOR_SILENCE] score=${(matchScore * 100).toInt()}% - still speaking...")
@@ -117,12 +114,12 @@ class PromptTrigger @Inject constructor() {
         // Check cooldown - don't prompt too soon after previous prompt
         val now = System.currentTimeMillis()
         val timeSinceLastPrompt = now - lastPromptTimeMs
-        if (lastPromptTimeMs > 0 && timeSinceLastPrompt < cooldownMs) {
-            Log.v(TAG, "[COOLDOWN] ${timeSinceLastPrompt}ms < ${cooldownMs}ms, waiting...")
+        if (lastPromptTimeMs > 0 && timeSinceLastPrompt < currentCooldownMs) {
+            Log.v(TAG, "[COOLDOWN] ${timeSinceLastPrompt}ms < ${currentCooldownMs}ms, waiting...")
             return false
         }
 
-        Log.d(TAG, "[SILENCE_DETECTED] score=${(matchScore * 100).toInt()}% - triggering prompt")
+        Log.d(TAG, "[SILENCE_DETECTED] score=${(matchScore * 100).toInt()}% >= ${triggerPercent}% - triggering prompt")
         return true
     }
 
@@ -132,7 +129,7 @@ class PromptTrigger @Inject constructor() {
      */
     fun markPromptTriggered() {
         lastPromptTimeMs = System.currentTimeMillis()
-        Log.d(TAG, "[COOLDOWN_START] Next prompt blocked for ${cooldownMs}ms")
+        Log.d(TAG, "[COOLDOWN_START] Next prompt blocked for ${currentCooldownMs}ms")
     }
 
     /**

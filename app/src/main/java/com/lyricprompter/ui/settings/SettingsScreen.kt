@@ -67,6 +67,9 @@ fun SettingsScreen(
     var keepScreenOn by remember { mutableStateOf(true) }
     var ttsSpeed by remember { mutableFloatStateOf(1.0f) }
 
+    // Timing settings - default beats for // marker (when no number specified)
+    var defaultCooldownBeats by remember { mutableFloatStateOf(2f) }
+
     // Phone mic setting - stored via AudioRouter
     var usePhoneMic by remember { mutableStateOf(audioRouter.usePhoneMic) }
 
@@ -125,6 +128,21 @@ fun SettingsScreen(
                     label = stringResource(R.string.settings_default_count_in),
                     checked = defaultCountInEnabled,
                     onCheckedChange = { defaultCountInEnabled = it }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Timing Section
+            SettingsSection(title = stringResource(R.string.settings_timing)) {
+                SliderSettingWithDescription(
+                    label = stringResource(R.string.settings_default_cooldown_beats),
+                    description = stringResource(R.string.settings_default_cooldown_beats_description),
+                    value = defaultCooldownBeats,
+                    onValueChange = { defaultCooldownBeats = it },
+                    valueRange = 1f..8f,
+                    steps = 6,
+                    valueDisplay = "${defaultCooldownBeats.toInt()} beats"
                 )
             }
 
@@ -280,6 +298,44 @@ private fun SliderSetting(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = label, modifier = Modifier.weight(1f))
+            Text(
+                text = valueDisplay,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = steps
+        )
+    }
+}
+
+@Composable
+private fun SliderSettingWithDescription(
+    label: String,
+    description: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    valueDisplay: String = value.toInt().toString()
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = label)
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
                 text = valueDisplay,
                 style = MaterialTheme.typography.titleMedium,

@@ -167,9 +167,11 @@ data class Song(
 
 data class LyricLine(
     val index: Int,
-    val text: String,                        // Original text: "Is this the real life"
+    val text: String,                        // Original text: "Is this the real life //"
     val words: List<String>,                 // Normalised: ["is", "this", "the", "real", "life"]
-    val promptText: String                   // For TTS: "Is this the real"
+    val promptText: String,                  // For TTS: "Is this just fantasy"
+    val hasPromptMarker: Boolean = true,     // Whether this line triggers a prompt
+    val cooldownBeats: Int? = null           // Beats from //N notation (null = use default)
 )
 ```
 
@@ -359,18 +361,58 @@ class FuzzyMatcher {
 
 ```kotlin
 class PromptTrigger {
-    
+    private var lastPromptTimeMs: Long = 0L
+    private var currentCooldownMs: Long = DEFAULT_COOLDOWN_MS
+    private var songBpm: Int? = null
+
+    companion object {
+        private const val DEFAULT_COOLDOWN_BEATS = 2
+        private const val DEFAULT_COOLDOWN_MS = 1000L
+
+        // Cooldown formula: beats × (60,000 / BPM)
+        fun calculateCooldownMs(beats: Int, bpm: Int?): Long {
+            if (bpm == null || bpm <= 0) return DEFAULT_COOLDOWN_MS
+            return ((beats * 60.0) / bpm * 1000).toLong()
+        }
+    }
+
+    fun configureSong(bpm: Int?) {
+        songBpm = bpm
+        currentCooldownMs = calculateCooldownMs(DEFAULT_COOLDOWN_BEATS, bpm)
+    }
+
+    fun setCooldownForLine(beats: Int?) {
+        val actualBeats = beats ?: DEFAULT_COOLDOWN_BEATS
+        currentCooldownMs = calculateCooldownMs(actualBeats, songBpm)
+    }
+
     fun shouldPrompt(
         lineIndex: Int,
         matchScore: Float,
         triggerPercent: Int,
-        lastPromptedLine: Int
+        lastPromptedLine: Int,
+        isFinal: Boolean = false
     ): Boolean {
         // Don't re-prompt same line
         if (lineIndex <= lastPromptedLine) return false
-        
+
         // Check if we've hit the trigger threshold
-        return matchScore >= (triggerPercent / 100f)
+        if (matchScore < (triggerPercent / 100f)) return false
+
+        // Only trigger on FINAL results (silence detected)
+        if (!isFinal) return false
+
+        // Check cooldown
+        val now = System.currentTimeMillis()
+        if (lastPromptTimeMs > 0 && (now - lastPromptTimeMs) < currentCooldownMs) {
+            return false
+        }
+
+        return true
+    }
+
+    fun markPromptTriggered() {
+        lastPromptTimeMs = System.currentTimeMillis()
     }
 }
 ```
@@ -611,7 +653,9 @@ Transforms raw lyrics text into structured Song data.
 
 ```kotlin
 class ProcessLyricsUseCase @Inject constructor() {
-    
+    // Regex to match // or //N at end of line (where N is 1-16)
+    private val promptMarkerRegex = Regex("//([0-9]{1,2})?\\s*$")
+
     fun process(
         rawLyrics: String,
         title: String,
@@ -619,71 +663,65 @@ class ProcessLyricsUseCase @Inject constructor() {
     ): Song {
         // 1. Clean up text
         val cleaned = cleanLyrics(rawLyrics)
-        
+
         // 2. Split into lines
-        val lines = splitIntoLines(cleaned)
-        
-        // 3. Build LyricLine objects
-        val lyricLines = lines.mapIndexed { index, text ->
+        val rawLineTexts = splitIntoLines(cleaned)
+
+        // 3. Build LyricLine objects with prompts for the NEXT line
+        // If ANY line has "//" marker, use marker-based prompting
+        val anyHasMarker = rawLineTexts.any { hasPromptMarker(it) }
+
+        val lyricLines = rawLineTexts.mapIndexed { index, rawText ->
+            val hasMarker = hasPromptMarker(rawText)
+            val cooldownBeats = if (hasMarker) extractCooldownBeats(rawText) else null
+            val textForDisplay = rawText  // Keep //N for visibility
+            val textForMatching = stripPromptMarker(rawText)  // Strip for word matching
+            val nextRawText = rawLineTexts.getOrNull(index + 1)
+            val nextText = nextRawText?.let { stripPromptMarker(it) }
+
             LyricLine(
                 index = index,
-                text = text,
-                words = extractWords(text),
-                promptText = generatePrompt(lines.getOrNull(index + 1), 4)
+                text = textForDisplay,
+                words = extractWords(textForMatching),
+                promptText = generatePrompt(nextText, 4),
+                hasPromptMarker = if (anyHasMarker) hasMarker else true,
+                cooldownBeats = cooldownBeats
             )
         }
-        
+
         // 4. Extract vocabulary
-        val vocabulary = lyricLines
-            .flatMap { it.words }
-            .toSet()
-        
+        val vocabulary = lyricLines.flatMap { it.words }.toSet()
+
         // 5. Build Song with defaults
-        return Song(
-            id = UUID.randomUUID().toString(),
-            title = title,
-            artist = artist,
-            bpm = null,
-            originalKey = null,
-            performKey = null,
-            timeSignature = "4/4",
-            countInEnabled = true,
-            countInBeats = 4,
-            triggerPercent = 70,
-            promptWordCount = 4,
-            lines = lyricLines,
-            vocabulary = vocabulary,
-            setlistIds = emptyList(),
-            tags = emptyList(),
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis()
-        )
+        return Song(/* ... */)
     }
-    
-    private fun cleanLyrics(raw: String): String {
-        return raw
-            // Remove [Verse 1], [Chorus], etc.
-            .replace(Regex("\\[.*?\\]"), "")
-            // Remove multiple blank lines
-            .replace(Regex("\n{3,}"), "\n\n")
-            .trim()
+
+    private fun hasPromptMarker(line: String): Boolean {
+        return promptMarkerRegex.containsMatchIn(line.trimEnd())
     }
-    
-    private fun splitIntoLines(text: String): List<String> {
-        return text
-            .split("\n")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+
+    private fun extractCooldownBeats(line: String): Int? {
+        val match = promptMarkerRegex.find(line.trimEnd())
+        val beatsStr = match?.groupValues?.getOrNull(1)
+        return if (beatsStr.isNullOrEmpty()) {
+            null  // Just "//" - use default
+        } else {
+            beatsStr.toIntOrNull()?.coerceIn(1, 16)
+        }
     }
-    
+
+    private fun stripPromptMarker(line: String): String {
+        return line.trimEnd().replace(promptMarkerRegex, "").trimEnd()
+    }
+
     private fun extractWords(line: String): List<String> {
         return line
             .lowercase()
-            .replace(Regex("[^a-z0-9'\\s]"), "")  // Keep apostrophes for contractions
+            .replace(Regex("[^a-z0-9'\\s]"), "")
             .split(Regex("\\s+"))
             .filter { it.isNotEmpty() }
     }
-    
+
     private fun generatePrompt(nextLine: String?, wordCount: Int): String {
         if (nextLine == null) return ""
         val words = nextLine.split(Regex("\\s+"))
