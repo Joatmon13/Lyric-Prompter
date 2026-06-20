@@ -97,7 +97,9 @@ class ProcessLyricsUseCase @Inject constructor() {
      * Update prompt word count for a song (regenerates prompts).
      */
     fun updatePromptWordCount(song: Song, promptWordCount: Int): Song {
-        val lineTexts = song.lines.map { it.text }
+        // Strip the //N prompt marker from display text before generating prompts,
+        // otherwise the marker leaks into the spoken prompt (e.g. "...fantasy //2").
+        val lineTexts = song.lines.map { stripPromptMarker(it.text) }
 
         val updatedLines = song.lines.mapIndexed { index, line ->
             val nextLineText = lineTexts.getOrNull(index + 1)

@@ -41,8 +41,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lyricprompter.BuildConfig
 import com.lyricprompter.R
 import com.lyricprompter.audio.routing.AudioRouter
@@ -55,22 +57,29 @@ fun SettingsScreen(
     diagnosticLogger: DiagnosticLogger,
     modifier: Modifier = Modifier,
     onBackClick: () -> Unit,
-    onSessionLogsClick: () -> Unit = {}
+    onSessionLogsClick: () -> Unit = {},
+    viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Settings state - would normally be stored in DataStore
-    var defaultTriggerPercent by remember { mutableFloatStateOf(70f) }
-    var defaultPromptWords by remember { mutableFloatStateOf(4f) }
-    var defaultCountInEnabled by remember { mutableStateOf(true) }
-    var keepScreenOn by remember { mutableStateOf(true) }
-    var ttsSpeed by remember { mutableFloatStateOf(1.0f) }
+    // Persisted settings (DataStore). Sliders keep local state during a drag and
+    // persist on release; re-seeded via remember(key) when the stored value changes.
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    var triggerSlider by remember(settings.defaultTriggerPercent) {
+        mutableFloatStateOf(settings.defaultTriggerPercent.toFloat())
+    }
+    var promptWordsSlider by remember(settings.defaultPromptWords) {
+        mutableFloatStateOf(settings.defaultPromptWords.toFloat())
+    }
+    var cooldownSlider by remember(settings.defaultCooldownBeats) {
+        mutableFloatStateOf(settings.defaultCooldownBeats.toFloat())
+    }
+    var ttsSlider by remember(settings.ttsSpeed) {
+        mutableFloatStateOf(settings.ttsSpeed)
+    }
 
-    // Timing settings - default beats for // marker (when no number specified)
-    var defaultCooldownBeats by remember { mutableFloatStateOf(2f) }
-
-    // Phone mic setting - stored via AudioRouter
+    // Phone mic setting - stored via AudioRouter (already persisted in prefs)
     var usePhoneMic by remember { mutableStateOf(audioRouter.usePhoneMic) }
 
     // Check DND permission - refresh when returning to screen
@@ -109,25 +118,32 @@ fun SettingsScreen(
             SettingsSection(title = stringResource(R.string.settings_defaults)) {
                 SliderSetting(
                     label = stringResource(R.string.settings_default_trigger),
-                    value = defaultTriggerPercent,
-                    onValueChange = { defaultTriggerPercent = it },
+                    value = triggerSlider,
+                    onValueChange = { triggerSlider = it },
+                    onValueChangeFinished = { viewModel.setDefaultTriggerPercent(triggerSlider.toInt()) },
                     valueRange = 40f..90f,
                     steps = 9,
-                    valueDisplay = "${defaultTriggerPercent.toInt()}%"
+                    valueDisplay = "${triggerSlider.toInt()}%"
                 )
 
                 SliderSetting(
                     label = stringResource(R.string.settings_default_prompt_words),
-                    value = defaultPromptWords,
-                    onValueChange = { defaultPromptWords = it },
-                    valueRange = 2f..6f,
-                    steps = 3
+                    value = promptWordsSlider,
+                    onValueChange = { promptWordsSlider = it },
+                    onValueChangeFinished = { viewModel.setDefaultPromptWords(promptWordsSlider.toInt()) },
+                    valueRange = 0f..6f,
+                    steps = 5,
+                    valueDisplay = if (promptWordsSlider.toInt() == 0) {
+                        stringResource(R.string.settings_prompt_words_full_line)
+                    } else {
+                        "${promptWordsSlider.toInt()} words"
+                    }
                 )
 
                 SwitchSetting(
                     label = stringResource(R.string.settings_default_count_in),
-                    checked = defaultCountInEnabled,
-                    onCheckedChange = { defaultCountInEnabled = it }
+                    checked = settings.defaultCountInEnabled,
+                    onCheckedChange = { viewModel.setDefaultCountInEnabled(it) }
                 )
             }
 
@@ -138,11 +154,12 @@ fun SettingsScreen(
                 SliderSettingWithDescription(
                     label = stringResource(R.string.settings_default_cooldown_beats),
                     description = stringResource(R.string.settings_default_cooldown_beats_description),
-                    value = defaultCooldownBeats,
-                    onValueChange = { defaultCooldownBeats = it },
+                    value = cooldownSlider,
+                    onValueChange = { cooldownSlider = it },
+                    onValueChangeFinished = { viewModel.setDefaultCooldownBeats(cooldownSlider.toInt()) },
                     valueRange = 1f..8f,
                     steps = 6,
-                    valueDisplay = "${defaultCooldownBeats.toInt()} beats"
+                    valueDisplay = "${cooldownSlider.toInt()} beats"
                 )
             }
 
@@ -164,11 +181,12 @@ fun SettingsScreen(
 
                 SliderSetting(
                     label = stringResource(R.string.settings_tts_speed),
-                    value = ttsSpeed,
-                    onValueChange = { ttsSpeed = it },
+                    value = ttsSlider,
+                    onValueChange = { ttsSlider = it },
+                    onValueChangeFinished = { viewModel.setTtsSpeed(ttsSlider) },
                     valueRange = 0.5f..2.0f,
                     steps = 14,
-                    valueDisplay = String.format("%.1fx", ttsSpeed)
+                    valueDisplay = String.format("%.1fx", ttsSlider)
                 )
             }
 
@@ -178,8 +196,8 @@ fun SettingsScreen(
             SettingsSection(title = stringResource(R.string.settings_display)) {
                 SwitchSetting(
                     label = stringResource(R.string.settings_keep_screen_on),
-                    checked = keepScreenOn,
-                    onCheckedChange = { keepScreenOn = it }
+                    checked = settings.keepScreenOn,
+                    onCheckedChange = { viewModel.setKeepScreenOn(it) }
                 )
             }
 
@@ -290,7 +308,8 @@ private fun SliderSetting(
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int,
-    valueDisplay: String = value.toInt().toString()
+    valueDisplay: String = value.toInt().toString(),
+    onValueChangeFinished: (() -> Unit)? = null
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -307,6 +326,7 @@ private fun SliderSetting(
         Slider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = valueRange,
             steps = steps
         )
@@ -321,7 +341,8 @@ private fun SliderSettingWithDescription(
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int,
-    valueDisplay: String = value.toInt().toString()
+    valueDisplay: String = value.toInt().toString(),
+    onValueChangeFinished: (() -> Unit)? = null
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -345,6 +366,7 @@ private fun SliderSettingWithDescription(
         Slider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = valueRange,
             steps = steps
         )

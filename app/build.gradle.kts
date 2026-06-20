@@ -65,6 +65,14 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        unitTests {
+            // Let android.util.Log (and other android.jar stubs) return defaults
+            // instead of throwing "not mocked" in plain JUnit unit tests.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {

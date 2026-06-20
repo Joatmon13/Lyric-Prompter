@@ -8,6 +8,7 @@ import com.lyricprompter.data.remote.bpm.BpmLookupService
 import com.lyricprompter.data.remote.bpm.BpmResult
 import com.lyricprompter.data.remote.lyrics.LyricsSearchResult
 import com.lyricprompter.data.remote.lyrics.LyricsSearchService
+import com.lyricprompter.data.repository.SettingsRepository
 import com.lyricprompter.data.repository.SongRepository
 import com.lyricprompter.domain.usecase.ProcessLyricsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,7 +23,8 @@ class AddSongViewModel @Inject constructor(
     private val lyricsSearchService: LyricsSearchService,
     private val bpmLookupService: BpmLookupService,
     private val processLyricsUseCase: ProcessLyricsUseCase,
-    private val songRepository: SongRepository
+    private val songRepository: SongRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     companion object {
@@ -66,11 +68,20 @@ class AddSongViewModel @Inject constructor(
 
             lyricsSearchService.fetchLyrics(result)
                 .onSuccess { lyrics ->
-                    // Create song from lyrics
+                    // Apply app-wide defaults for new songs (spec F6).
+                    val settings = settingsRepository.current()
+
+                    // Pass the default prompt word count (0 = full line) into
+                    // process() so promptText is generated at the right length.
                     var song = processLyricsUseCase.process(
                         rawLyrics = lyrics,
                         title = result.title,
-                        artist = result.artist
+                        artist = result.artist,
+                        promptWordCount = settings.defaultPromptWords
+                    )
+                    song = song.copy(
+                        triggerPercent = settings.defaultTriggerPercent,
+                        countInEnabled = settings.defaultCountInEnabled
                     )
 
                     // Try to look up BPM (non-blocking, best effort)

@@ -71,6 +71,7 @@
     <string name="settings_defaults">Default Settings</string>
     <string name="settings_default_trigger">Default Trigger %</string>
     <string name="settings_default_prompt_words">Default Prompt Words</string>
+    <string name="settings_prompt_words_full_line">Full line</string>
     <string name="settings_default_count_in">Default Count-in</string>
     <string name="settings_timing">Timing</string>
     <string name="settings_default_cooldown_beats">Default Cooldown</string>

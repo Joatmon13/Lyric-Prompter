@@ -8,6 +8,7 @@ import com.lyricprompter.audio.routing.AudioRouter
 import com.lyricprompter.audio.tts.CountInPlayer
 import com.lyricprompter.audio.tts.PromptSpeaker
 import com.lyricprompter.audio.vosk.VoskEngine
+import com.lyricprompter.data.repository.SettingsRepository
 import com.lyricprompter.data.repository.SongRepository
 import com.lyricprompter.diagnostics.DiagnosticLogger
 import com.lyricprompter.domain.model.PerformanceState
@@ -32,7 +33,8 @@ class PerformViewModel @Inject constructor(
     private val promptSpeaker: PromptSpeaker,
     private val countInPlayer: CountInPlayer,
     private val audioRouter: AudioRouter,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     companion object {
@@ -63,6 +65,7 @@ class PerformViewModel @Inject constructor(
 
             // Initialize components
             promptSpeaker.initialize()
+            promptSpeaker.setSpeechRate(settingsRepository.current().ttsSpeed)
             val vocabResult = voskEngine.loadVocabulary(song.vocabulary)
             positionTracker.loadSong(song)
 
