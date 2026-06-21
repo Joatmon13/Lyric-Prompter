@@ -157,9 +157,35 @@ class PositionTracker @Inject constructor(
     }
 
     /**
-     * Helper to trigger a prompt and update state.
+     * Manually advance one line, e.g. the performer taps to catch up when
+     * recognition has fallen behind (a missed line). Forces the prompt for the
+     * next expected line, bypassing match-score, silence and cooldown gates,
+     * and always speaks the prompt if there is text for it.
+     *
+     * @return A PromptEvent to act on, or null if already at the end of the song.
      */
-    private fun triggerPrompt(lineIndex: Int, currentSong: Song): PromptEvent? {
+    fun advanceManually(): PromptEvent? {
+        val currentSong = song ?: return null
+        if (lineWordsList.isEmpty()) return null
+
+        val nextExpectedLine = lastPromptedLine + 1
+        if (nextExpectedLine >= lineWordsList.size) {
+            Log.d(TAG, "[MANUAL_ADVANCE] at_end | nextExpected=$nextExpectedLine")
+            return null
+        }
+
+        currentLineIndex = nextExpectedLine
+        Log.i(TAG, "[MANUAL_ADVANCE] forcing prompt | line=$nextExpectedLine")
+        return triggerPrompt(nextExpectedLine, currentSong, forceSpeak = true)
+    }
+
+    /**
+     * Helper to trigger a prompt and update state.
+     *
+     * @param forceSpeak When true (manual advance), always speak the prompt
+     *   regardless of whether the line carries a `//` marker.
+     */
+    private fun triggerPrompt(lineIndex: Int, currentSong: Song, forceSpeak: Boolean = false): PromptEvent? {
         lastPromptedLine = lineIndex
 
         // Set cooldown based on this line's //N notation (or use default)
@@ -185,7 +211,10 @@ class PositionTracker @Inject constructor(
         // Check hasPromptMarker flag, OR check if text ends with "//" or "//N" (for songs not yet reprocessed)
         // Gson deserializes missing boolean fields as false, so we need the text fallback
         val lineTextHasMarker = currentLine?.text?.let { promptMarkerRegex.containsMatchIn(it.trimEnd()) } == true
-        val hasMarker = if (songHasAnyMarkers) {
+        val hasMarker = if (forceSpeak) {
+            // Manual advance: always speak, ignore marker gating
+            true
+        } else if (songHasAnyMarkers) {
             // Song uses markers - check if THIS line has one (either from flag or text)
             currentLine?.hasPromptMarker == true || lineTextHasMarker
         } else {

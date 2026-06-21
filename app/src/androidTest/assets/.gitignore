@@ -1,0 +1,3 @@
+# Validation recordings are local-only; keep the README.
+/validation/*
+!/validation/README.md

@@ -232,6 +232,34 @@ class PerformViewModel @Inject constructor(
         }
 
         // Handle prompt events
+        if (event != null) handlePromptEvent(event)
+    }
+
+    /**
+     * Manually advance one line. The performer taps to catch up when recognition
+     * has fallen behind (e.g. a line was missed). Forces the next line's prompt,
+     * bypassing the match/silence/cooldown gates.
+     */
+    fun advanceManually() {
+        val ready = _uiState.value as? PerformUiState.Ready ?: return
+        if (ready.state.status !is PerformanceStatus.Listening) return
+
+        val event = positionTracker.advanceManually()
+        val trackingState = positionTracker.getState()
+        _uiState.update { state ->
+            if (state is PerformUiState.Ready) {
+                state.copy(state = state.state.copy(currentLineIndex = trackingState.currentLineIndex))
+            } else state
+        }
+        Log.i(TAG, "[MANUAL_ADVANCE] " +
+            "line=${trackingState.currentLineIndex} | " +
+            "lastPrompted=${trackingState.lastPromptedLine}")
+
+        if (event != null) handlePromptEvent(event)
+    }
+
+    /** Act on a prompt event from the position tracker (auto or manual). */
+    private fun handlePromptEvent(event: PromptEvent) {
         when (event) {
             is PromptEvent.SpeakPrompt -> {
                 promptedCount++
@@ -267,7 +295,7 @@ class PerformViewModel @Inject constructor(
                 Log.i(TAG, "[SONG_FINISHED] prompted=$promptedCount")
                 stop()
             }
-            else -> { /* No action */ }
+            is PromptEvent.LineCompleted -> { /* No TTS for this line */ }
         }
     }
 

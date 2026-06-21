@@ -37,6 +37,49 @@ class VoskEngine @Inject constructor(
         private const val TAG = "LP.Vosk"
         private const val SAMPLE_RATE = 16000.0f
         private const val MODEL_PATH = "vosk-model-small-en-us"
+
+        // 16 kHz * 2 bytes/sample (16-bit) mono = bytes of audio per second.
+        private const val BYTES_PER_SECOND = 32_000L
+
+        // ~0.1s chunk, mirroring streaming granularity.
+        private const val PCM_CHUNK_BYTES = 3_200
+    }
+
+    /**
+     * Replay a raw PCM stream through a fresh recognizer offline (no microphone),
+     * using the same grammar as live recognition. Used by the validation harness
+     * to feed recorded audio through the exact recognition path.
+     *
+     * @param pcm Little-endian 16-bit PCM, 16 kHz mono (WAV header already stripped).
+     * @param vocabulary Song vocabulary (same grammar Vosk uses live).
+     * @param onResult (text, isFinal, elapsedMs-into-audio) for each non-empty result.
+     */
+    fun recognizePcmStream(
+        pcm: java.io.InputStream,
+        vocabulary: Set<String>,
+        onResult: (text: String, isFinal: Boolean, elapsedMs: Long) -> Unit
+    ) {
+        val currentModel = model ?: error("Vosk model not initialized")
+        val rec = Recognizer(currentModel, SAMPLE_RATE, buildGrammar(vocabulary))
+        try {
+            val buffer = ByteArray(PCM_CHUNK_BYTES)
+            var totalBytes = 0L
+            while (true) {
+                val read = pcm.read(buffer)
+                if (read < 0) break
+                totalBytes += read
+                val elapsedMs = (totalBytes * 1000L) / BYTES_PER_SECOND
+                val isFinal = rec.acceptWaveForm(buffer, read)
+                val text = if (isFinal) parseResult(rec.result) else parseResult(rec.partialResult)
+                if (text.isNotEmpty()) onResult(text, isFinal, elapsedMs)
+            }
+            val finalText = parseResult(rec.finalResult)
+            if (finalText.isNotEmpty()) {
+                onResult(finalText, true, (totalBytes * 1000L) / BYTES_PER_SECOND)
+            }
+        } finally {
+            rec.close()
+        }
     }
 
     /**

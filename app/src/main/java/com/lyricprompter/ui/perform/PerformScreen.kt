@@ -23,6 +23,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -183,6 +185,7 @@ fun PerformScreen(
                             onBackClick()
                         },
                         onRestart = viewModel::restart,
+                        onAdvance = viewModel::advanceManually,
                         onBackClick = {
                             viewModel.stop()
                             onBackClick()
@@ -292,10 +295,12 @@ private fun PerformContent(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onRestart: () -> Unit,
+    onAdvance: () -> Unit,
     onBackClick: () -> Unit
 ) {
     val performanceState = state.state
     val song = performanceState.song
+    val isListening = performanceState.status is PerformanceStatus.Listening
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Main content column
@@ -339,11 +344,21 @@ private fun PerformContent(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Main content area
+            // Main content area. During listening the whole area is a large
+            // tap target to manually advance a line when recognition falls behind.
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .then(
+                        if (isListening) {
+                            Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onAdvance
+                            )
+                        } else Modifier
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 AnimatedContent(
@@ -404,6 +419,12 @@ private fun PerformContent(
 
                 // Bottom controls (stop button during listening)
                 if (performanceState.status is PerformanceStatus.Listening) {
+                    Text(
+                        text = stringResource(R.string.perform_tap_to_advance),
+                        style = PerformanceTypography.status,
+                        color = PerformanceText.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Button(
                         onClick = onStop,
                         colors = ButtonDefaults.buttonColors(
