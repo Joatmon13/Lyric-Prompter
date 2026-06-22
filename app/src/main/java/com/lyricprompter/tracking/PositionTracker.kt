@@ -28,6 +28,10 @@ class PositionTracker @Inject constructor(
         private const val SEARCH_WINDOW_BEFORE = 0  // Never go back
         const val SEARCH_WINDOW_AFTER = 2   // Look at next 2 lines (allows catching up if one line missed)
 
+        // A later line must beat the next expected line's score by this margin
+        // before we skip ahead to it (stay sequential unless evidence is strong).
+        private const val SKIP_MARGIN = 0.20f
+
         // Max words to keep in buffer
         const val MAX_BUFFER_SIZE = 20
 
@@ -109,46 +113,62 @@ class PositionTracker @Inject constructor(
             recognizedBuffer.removeAt(0)
         }
 
-        // SEQUENTIAL MODE: Only look at the next expected line
-        // This prevents jumping ahead to repeating choruses or similar lines
-        val nextExpectedLine = lastPromptedLine + 1
+        // LOOK-AHEAD MODE: score the next expected line plus a small window of
+        // following lines, so we can catch up when a line was missed (e.g. a weak
+        // unstressed word dropped and we never hit threshold on it). The window is
+        // deliberately small so we don't jump to a repeated chorus elsewhere.
+        val firstCandidate = lastPromptedLine + 1
 
         // Check if we've reached the end of the song
-        if (nextExpectedLine >= lineWordsList.size) {
-            Log.d(TAG, "[END_OF_SONG] nextExpected=$nextExpectedLine | totalLines=${lineWordsList.size}")
+        if (firstCandidate >= lineWordsList.size) {
+            Log.d(TAG, "[END_OF_SONG] nextExpected=$firstCandidate | totalLines=${lineWordsList.size}")
             return null
         }
 
-        // Match ONLY against the next expected line
-        val nextLineWords = lineWordsList[nextExpectedLine]
-        val matchScore = fuzzyMatcher.matchScore(recognizedBuffer, nextLineWords)
+        val lastCandidate = minOf(lineWordsList.lastIndex, firstCandidate + SEARCH_WINDOW_AFTER)
 
-        val lineText = currentSong.lines.getOrNull(nextExpectedLine)?.text?.take(40) ?: ""
+        // Bias toward the earliest (sequential) line; only prefer a later line
+        // when it beats the expected line's score by SKIP_MARGIN.
+        var bestLine = firstCandidate
+        var bestScore = fuzzyMatcher.matchScore(recognizedBuffer, lineWordsList[firstCandidate])
+        for (i in (firstCandidate + 1)..lastCandidate) {
+            val score = fuzzyMatcher.matchScore(recognizedBuffer, lineWordsList[i])
+            if (score > bestScore + SKIP_MARGIN) {
+                bestScore = score
+                bestLine = i
+            }
+        }
+
+        val lineText = currentSong.lines.getOrNull(bestLine)?.text?.take(40) ?: ""
         Log.d(TAG, "[MATCH_RESULT] " +
-            "line=$nextExpectedLine | " +
-            "score=${(matchScore * 100).toInt()}% | " +
+            "line=$bestLine | " +
+            "score=${(bestScore * 100).toInt()}% | " +
             "isFinal=$isFinal | " +
+            "skipped=${bestLine - firstCandidate} | " +
             "text=\"$lineText\"")
 
         // Check if we should trigger a prompt
         // Key change: pass isFinal to shouldPrompt - only trigger on silence
-        val lineWordCount = nextLineWords.size
+        val lineWordCount = lineWordsList[bestLine].size
         if (promptTrigger.shouldPrompt(
-                lineIndex = nextExpectedLine,
-                matchScore = matchScore,
+                lineIndex = bestLine,
+                matchScore = bestScore,
                 triggerPercent = currentSong.triggerPercent,
                 lastPromptedLine = lastPromptedLine,
                 lineWordCount = lineWordCount,
                 isFinal = isFinal
             )
         ) {
-            // Update currentLineIndex to next line
-            currentLineIndex = nextExpectedLine
-            return triggerPrompt(nextExpectedLine, currentSong)
+            if (bestLine > firstCandidate) {
+                Log.i(TAG, "[CATCH_UP] skipping lines $firstCandidate..${bestLine - 1} | matched=$bestLine")
+            }
+            // Update currentLineIndex to matched line
+            currentLineIndex = bestLine
+            return triggerPrompt(bestLine, currentSong)
         } else {
             Log.v(TAG, "[WAITING] " +
-                "line=$nextExpectedLine | " +
-                "score=${(matchScore * 100).toInt()}% | " +
+                "line=$bestLine | " +
+                "score=${(bestScore * 100).toInt()}% | " +
                 "isFinal=$isFinal | " +
                 "lastPrompted=$lastPromptedLine")
         }

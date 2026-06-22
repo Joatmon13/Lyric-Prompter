@@ -105,12 +105,46 @@ This document tracks all changes made during testing sessions to avoid reiterati
 
 ---
 
-## Current Configuration (as of Jan 2, 2026)
+## Session: June 21-22, 2026
+
+### Issue 6: Vosk Library Outdated
+**Problem:** Project pinned `vosk-android` 0.3.47; latest is 0.3.75 (Dec 2025).
+**Investigation:** Also evaluated whether a better *model* exists for singing. Findings:
+- Bundled model `vosk-model-small-en-us-0.15` (40MB) is still the current recommended small en-us model — not outdated.
+- No Vosk model is trained for singing; the speech-vs-singing gap is inherent.
+- App relies on dynamic per-song grammar (`Recognizer(model, rate, grammar)` + `setGrammar()` in `VoskEngine.kt`), which only works with dynamic-graph models: the small model or `vosk-model-en-us-0.22-lgraph` (128MB, ~20% lower WER). The large static models (0.22 1.8GB, gigaspeech 2.3GB) are NOT compatible with `setGrammar()`.
+**Solution:** Bumped `vosk` to 0.3.75 in `gradle/libs.versions.toml`.
+**Files Modified:** `gradle/libs.versions.toml`
+**Status:** RESOLVED (committed to main, d1ef60d)
+
+---
+
+### Issue 7: Tracker Stuck on Line, Never Advances When Singing
+**Problem:** During a sung test (42-line song, 64 BPM), `[SESSION_END] linesPrompted=0` — the tracker never advanced past line 0.
+**Diagnosis (from logcat):**
+- Line 0 ("They sat together in the park", 6 words) capped at `score=33%` — Vosk only caught "sat" + "together"; weak/unstressed words ("they", "in", "the") were swallowed when sung.
+- Meanwhile Vosk clearly heard distinctive sustained words from *later* lines ("neon sky", "emptiness", "remember", "spark").
+- Root cause: `onWordsRecognized()` matched ONLY against `lastPromptedLine + 1` (single line). The `SEARCH_WINDOW_AFTER = 2` constant was defined but never referenced — look-ahead was scaffolded but never wired up.
+
+**Fix: Look-Ahead Matching**
+- Score the next expected line PLUS a small window (`SEARCH_WINDOW_AFTER = 2`) of following lines; advance to the best match.
+- Biased toward staying sequential: a later line must beat the expected line's score by `SKIP_MARGIN = 0.20f` before we skip to it. Window capped so we don't jump to a repeated chorus.
+- New log fields: `[MATCH_RESULT] ... skipped=N` and `[CATCH_UP] skipping lines X..Y | matched=Z`.
+- Files Modified: `PositionTracker.kt` (added `SKIP_MARGIN`; replaced single-line match in `onWordsRecognized()` with windowed best-of-search)
+- Recommended companion tuning: lower per-song `triggerPercent` to ~30-35% for sung material (empirically capped at 33%).
+- Status: **IMPLEMENTED** — built + installed to tablet (Samsung SM-T590), pending re-test.
+
+**Related observation (not yet actioned):** `reset()` comment claims "Vosk can't update grammar during recognition," but `VoskEngine.updateGrammar()`/`setGrammar()` work, and `PositionTracker`'s `updateFocusedGrammar()`/`onGrammarUpdateNeeded` scaffolding is entirely unused. Re-focusing grammar to the current window could improve recognition accuracy — larger change, deferred.
+
+---
+
+## Current Configuration (as of June 22, 2026)
 
 ### Prompt Triggering Logic
 ```
 1. Accumulate recognized words in buffer (max 20)
-2. Match ONLY against next expected line (sequential mode)
+2. Match against next expected line + window of next 2 lines (look-ahead mode);
+   pick best-scoring line, biased sequential via SKIP_MARGIN (0.20)
 3. On PARTIAL Vosk result: just accumulate, don't trigger
 4. On FINAL Vosk result (silence detected):
    - Check matchScore >= triggerPercent (from song settings)
@@ -182,6 +216,8 @@ adb logcat -d | grep -E "LP\." | tail -100
 - `[TRIGGER_PROMPT]` - Prompt fired
 - `[VOSK_PARTIAL]` - Still speaking
 - `[VOSK_FINAL]` - Silence detected by Vosk
+- `[MATCH_RESULT] ... skipped=N` - Best-match line chosen (N = lines skipped ahead)
+- `[CATCH_UP] skipping lines X..Y | matched=Z` - Look-ahead jumped past missed line(s)
 
 ### Test Song
 Currently using a song at 64 BPM for testing (slow tempo stress test)
