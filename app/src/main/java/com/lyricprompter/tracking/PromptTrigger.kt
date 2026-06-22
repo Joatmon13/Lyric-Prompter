@@ -68,19 +68,20 @@ class PromptTrigger @Inject constructor() {
     /**
      * Determine if a prompt should be triggered.
      *
-     * Logic: Wait for silence AND minimum match threshold before triggering.
+     * Logic: trigger as soon as the line is confidently matched, gated by a
+     * BPM-derived cooldown (no longer waits for Vosk silence detection, which
+     * pushed the prompt past the end of the line).
      *
      * Requirements to trigger:
      * 1. Must meet minimum match threshold (triggerPercent from song settings)
-     * 2. Must be a FINAL result (silence detected - user stopped singing)
-     * 3. Must not be in cooldown (prevents rapid-fire prompts)
+     * 2. Must not be in cooldown (BPM/`//N`-derived spacing between prompts)
      *
      * @param lineIndex Current line being matched
      * @param matchScore How well the recognized words match the line (0.0-1.0)
      * @param triggerPercent Minimum match percentage required (from song settings)
      * @param lastPromptedLine The last line that was prompted (-1 if none)
      * @param lineWordCount Number of words in the line (unused but kept for API)
-     * @param isFinal True if this is a final result (silence detected)
+     * @param isFinal True if this is a final (silence) result; informational only
      * @return true if we should speak the prompt for the next line
      */
     fun shouldPrompt(
@@ -104,14 +105,11 @@ class PromptTrigger @Inject constructor() {
             return false
         }
 
-        // Only trigger on FINAL results (silence detected)
-        // This waits for the performer to finish singing before prompting
-        if (!isFinal) {
-            Log.v(TAG, "[WAITING_FOR_SILENCE] score=${(matchScore * 100).toInt()}% - still speaking...")
-            return false
-        }
-
-        // Check cooldown - don't prompt too soon after previous prompt
+        // Check cooldown - don't prompt too soon after the previous prompt.
+        // Cooldown is BPM-derived (see calculateCooldownMs), so spacing scales
+        // with tempo and the per-line //N notation. This is the timing gate:
+        // once a line's prompt fires, the next can't fire for ~N beats, which
+        // gives the performer time to sing the next line before it's prompted.
         val now = System.currentTimeMillis()
         val timeSinceLastPrompt = now - lastPromptTimeMs
         if (lastPromptTimeMs > 0 && timeSinceLastPrompt < currentCooldownMs) {
@@ -119,7 +117,11 @@ class PromptTrigger @Inject constructor() {
             return false
         }
 
-        Log.d(TAG, "[SILENCE_DETECTED] score=${(matchScore * 100).toInt()}% >= ${triggerPercent}% - triggering prompt")
+        // Fire as soon as the line is confidently matched, WITHOUT waiting for
+        // Vosk to declare silence. Waiting for the FINAL result added ~0.5-0.8s
+        // of lag and pushed the prompt past the end of the line. triggerPercent
+        // controls how early within the line this lands (lower = earlier prompt).
+        Log.d(TAG, "[TRIGGER] score=${(matchScore * 100).toInt()}% >= ${triggerPercent}% | isFinal=$isFinal - prompting")
         return true
     }
 

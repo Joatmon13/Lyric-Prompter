@@ -34,13 +34,55 @@ class FuzzyMatcherTest {
     }
 
     @Test
-    fun `matchScore is fraction of line words matched`() {
-        // 4 of 5 line words appear -> 0.8
+    fun `matchScore is fraction of line words matched (content words)`() {
+        // 4 of 5 content words appear -> 0.8 (no function words involved)
         val score = matcher.matchScore(
-            words("is this the real"),
-            words("is this the real life")
+            words("hello darkness my old"),
+            words("hello darkness my old friend")
         )
         assertEquals(0.8f, score, 0.0001f)
+    }
+
+    // --- content-word weighting ---
+    // Vosk drops short/unstressed function words when lyrics are sung, so the
+    // score denominator down-weights them (FUNCTION_WORD_WEIGHT).
+
+    @Test
+    fun `missing only function words still scores high`() {
+        // Line: "they sat together in the park"; sung dropped "in" and "the".
+        // Content words (they, sat, together, park) all matched.
+        // matched = 4.0 ; total = 4*1.0 + 2*0.35 = 4.7 -> ~0.851
+        val score = matcher.matchScore(
+            words("they sat together park"),
+            words("they sat together in the park")
+        )
+        assertEquals(0.851f, score, 0.01f)
+        assertTrue("expected > 0.7 when only function words dropped", score > 0.7f)
+    }
+
+    @Test
+    fun `missing a content word costs more than missing a function word`() {
+        val line = words("she looked at him and he felt a spark")
+        // Drop only function words (at, and, a): content fully covered.
+        val dropFunction = matcher.matchScore(words("she looked him he felt spark"), line)
+        // Drop a content word (spark) plus the same function words.
+        val dropContent = matcher.matchScore(words("she looked him he felt"), line)
+        assertTrue(
+            "dropping function words ($dropFunction) should beat dropping content ($dropContent)",
+            dropFunction > dropContent
+        )
+        assertTrue("function-only drop should clear a 60% threshold", dropFunction >= 0.6f)
+    }
+
+    @Test
+    fun `long line with dropped function words clears threshold`() {
+        // The real failing case from device testing: 9-word line reaching only
+        // 55% under flat scoring now clears 60% with content weighting.
+        val score = matcher.matchScore(
+            words("she looked him felt spark"),
+            words("she looked at him and he felt a spark")
+        )
+        assertTrue("expected >= 0.6, was $score", score >= 0.6f)
     }
 
     @Test

@@ -9,9 +9,10 @@ import org.junit.Test
 /**
  * Unit tests for [PromptTrigger] - the decision of WHEN to fire a prompt.
  *
- * Encodes the behaviour converged on in TESTING_LOG.md Issues 4c-4f:
- * prompt only on a FINAL (silence) result, only when the match meets the
- * song's triggerPercent, and only after the per-line cooldown has elapsed.
+ * Encodes the behaviour converged on in TESTING_LOG.md Issues 4c-4f and 9:
+ * fire as soon as the match meets the song's triggerPercent (partial OR final,
+ * no longer waiting for silence — that added end-of-line lag), gated only by
+ * the per-line BPM-derived cooldown.
  */
 class PromptTriggerTest {
 
@@ -65,11 +66,24 @@ class PromptTriggerTest {
     }
 
     @Test
-    fun `does not fire on a partial result even with a perfect match`() {
-        // Issue 4c: wait for silence (final) before prompting.
+    fun `fires on a partial result once the threshold is met`() {
+        // Issue 9: no longer wait for silence - fire while finishing the line
+        // so the prompt is not late. A partial that meets threshold triggers.
         val fired = trigger.shouldPrompt(
             lineIndex = 0,
             matchScore = 1.0f,
+            triggerPercent = 70,
+            lastPromptedLine = -1,
+            isFinal = false
+        )
+        assertTrue(fired)
+    }
+
+    @Test
+    fun `does not fire on a partial below the threshold`() {
+        val fired = trigger.shouldPrompt(
+            lineIndex = 0,
+            matchScore = 0.5f,
             triggerPercent = 70,
             lastPromptedLine = -1,
             isFinal = false

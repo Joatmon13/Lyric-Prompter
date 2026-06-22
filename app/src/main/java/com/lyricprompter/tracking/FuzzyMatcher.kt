@@ -21,21 +21,49 @@ class FuzzyMatcher @Inject constructor() {
 
         // Minimum word length for fuzzy matching (short words must be exact)
         const val MIN_FUZZY_WORD_LENGTH = 3
+
+        // Weight applied to common function words in the score denominator.
+        // Vosk reliably drops short/unstressed words (articles, conjunctions,
+        // prepositions) when lyrics are SUNG, so a line should not be penalized
+        // for missing them. Content words keep full weight (1.0).
+        const val FUNCTION_WORD_WEIGHT = 0.35f
+
+        // Function words to down-weight. Deliberately excludes pronouns
+        // (he/she/I/you...) which carry meaning in lyrics.
+        val FUNCTION_WORDS = setOf(
+            "a", "an", "the",
+            "and", "or", "but", "nor", "so", "as", "than",
+            "in", "on", "at", "to", "of", "for", "by", "with",
+            "from", "into", "onto", "off", "out",
+            "is", "was", "are", "were", "be", "been", "am"
+        )
     }
+
+    /** Weight a single line word for the score denominator. */
+    private fun wordWeight(word: String): Float =
+        if (word in FUNCTION_WORDS) FUNCTION_WORD_WEIGHT else 1f
 
     /**
      * Calculate match score between recognized words and a lyric line's words.
      *
      * @param recognizedWords Words recognized from speech (rolling buffer)
      * @param lineWords Words from a lyric line (normalized)
-     * @return Match score from 0.0 to 1.0 (percentage of line words matched)
+     * @return Match score from 0.0 to 1.0 (weighted fraction of line content matched)
+     *
+     * Scoring is content-weighted: each matched line word contributes its weight
+     * (1.0 for content words, FUNCTION_WORD_WEIGHT for function words) and the
+     * denominator is the total weight of the line. This keeps long lines from
+     * being penalized for function words Vosk drops when sung.
      */
     fun matchScore(recognizedWords: List<String>, lineWords: List<String>): Float {
         if (lineWords.isEmpty()) return 0f
         if (recognizedWords.isEmpty()) return 0f
 
-        val lcsLength = longestCommonSubsequenceLengthFuzzy(recognizedWords, lineWords)
-        return lcsLength.toFloat() / lineWords.size
+        val totalWeight = lineWords.fold(0f) { acc, w -> acc + wordWeight(w) }
+        if (totalWeight <= 0f) return 0f
+
+        val matchedWeight = weightedLcsFuzzy(recognizedWords, lineWords)
+        return (matchedWeight / totalWeight).coerceIn(0f, 1f)
     }
 
     /**
@@ -86,24 +114,26 @@ class FuzzyMatcher @Inject constructor() {
     }
 
     /**
-     * Calculate the length of the Longest Common Subsequence between two word lists,
-     * using fuzzy word matching instead of exact equality.
+     * Weighted Longest Common Subsequence between two word lists, using fuzzy word
+     * matching instead of exact equality. Each matched LINE word contributes its
+     * weight (content = 1.0, function word = FUNCTION_WORD_WEIGHT) rather than 1,
+     * so the returned value is the total matched weight of the line.
      * Uses dynamic programming for O(m*n) time complexity.
      */
-    private fun longestCommonSubsequenceLengthFuzzy(
+    private fun weightedLcsFuzzy(
         recognized: List<String>,
         line: List<String>
-    ): Int {
+    ): Float {
         val m = recognized.size
         val n = line.size
 
-        // DP table: dp[i][j] = LCS length for recognized[0..i-1] and line[0..j-1]
-        val dp = Array(m + 1) { IntArray(n + 1) }
+        // DP table: dp[i][j] = best matched weight for recognized[0..i-1] and line[0..j-1]
+        val dp = Array(m + 1) { FloatArray(n + 1) }
 
         for (i in 1..m) {
             for (j in 1..n) {
                 dp[i][j] = if (wordsMatch(recognized[i - 1], line[j - 1])) {
-                    dp[i - 1][j - 1] + 1
+                    dp[i - 1][j - 1] + wordWeight(line[j - 1])
                 } else {
                     maxOf(dp[i - 1][j], dp[i][j - 1])
                 }
